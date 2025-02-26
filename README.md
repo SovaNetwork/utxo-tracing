@@ -66,6 +66,8 @@ docker-compose up -d
 | RPC_PASSWORD | Bitcoin RPC password | password |
 | SOCKET_PATH | Path to Unix socket | /tmp/network-utxos.sock |
 | START_HEIGHT | Block height to start from | 0 |
+| POLLING_RATE | Polling interval in milliseconds | 500 |
+| MAX_BLOCKS_PER_BATCH | Maximum blocks to process in a batch | 200 |
 
 ### network-utxos
 
