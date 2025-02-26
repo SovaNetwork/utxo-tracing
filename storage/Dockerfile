@@ -57,7 +57,7 @@ WORKDIR /data
 EXPOSE 5557
 
 # Run the binary
-CMD network-utxos \
+CMD storage \
     --host "$HOST" \
     --port "$PORT" \
     --log-level "$LOG_LEVEL" \
