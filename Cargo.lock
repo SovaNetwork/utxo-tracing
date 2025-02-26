@@ -1108,6 +1108,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8a5a9a0ff0086c7a148acb942baaabeadf9504d10400b5a05645853729b9cd2"
 
 [[package]]
+name = "indexer"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "bitcoin 0.31.2",
+ "bitcoincore-rpc",
+ "chrono",
+ "clap",
+ "env_logger",
+ "hex",
+ "log",
+ "network-shared",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1277,24 +1295,6 @@ dependencies = [
  "log",
  "wasi 0.11.0+wasi-snapshot-preview1",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "network-indexer"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "bitcoin 0.31.2",
- "bitcoincore-rpc",
- "chrono",
- "clap",
- "env_logger",
- "hex",
- "log",
- "network-shared",
- "serde",
- "serde_json",
- "tokio",
 ]
 
 [[package]]

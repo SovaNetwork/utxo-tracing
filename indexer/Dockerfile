@@ -11,15 +11,11 @@ RUN apt-get update && \
     libssl-dev && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy manifests
-COPY Cargo.toml Cargo.lock ./
+# Copy entire utxo-tracing directory
+COPY . .
 
-# Copy the shared library code
-COPY ../network-shared ./network-shared
-
-# Copy source code
-COPY src ./src
-COPY justfile ./
+# Set working directory to indexer
+WORKDIR /usr/src/app/indexer
 
 # Build the application
 RUN cargo build --release
@@ -34,7 +30,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from builder
-COPY --from=builder /usr/src/app/target/release/network-indexer /usr/local/bin/
+COPY --from=builder /usr/src/app/indexer/target/release/indexer /usr/local/bin/
 
 # Create a non-root user with specific UID
 RUN useradd -m -u 1001 service
