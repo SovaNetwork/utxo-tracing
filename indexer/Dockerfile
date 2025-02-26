@@ -50,7 +50,7 @@ ENV SOCKET_PATH="/tmp/network-utxos.sock" \
     MAX_BLOCKS_PER_BATCH=200
 
 # Use shell form to allow environment variable expansion
-CMD network-indexer \
+CMD indexer \
     --socket-path "$SOCKET_PATH" \
     --rpc-host "$RPC_HOST" \
     --rpc-port "$RPC_PORT" \
