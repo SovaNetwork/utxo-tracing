@@ -1,5 +1,5 @@
-use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BlockUpdate {
@@ -69,22 +69,22 @@ impl SocketTransport {
             socket_path: socket_path.to_string(),
         }
     }
-    
+
     pub async fn send_update(&self, update: &BlockUpdate) -> Result<()> {
         use tokio::io::AsyncWriteExt;
         use tokio::net::UnixStream;
-        
+
         // Connect to socket
         let mut stream = UnixStream::connect(&self.socket_path).await?;
-        
+
         // Serialize with bincode
         let data = bincode::serialize(update)?;
-        
+
         // Send size header followed by data
         let size = data.len() as u32;
         stream.write_all(&size.to_le_bytes()).await?;
         stream.write_all(&data).await?;
-        
+
         Ok(())
     }
 }

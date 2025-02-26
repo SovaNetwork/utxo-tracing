@@ -1,14 +1,14 @@
-use std::time::Duration;
 use std::error::Error;
 use std::fmt;
+use std::time::Duration;
 
 use bitcoincore_rpc::bitcoin::{Address, Network};
-use bitcoincore_rpc::{Auth, Client, RpcApi, bitcoin::BlockHash, bitcoin::Block};
+use bitcoincore_rpc::{bitcoin::Block, bitcoin::BlockHash, Auth, Client, RpcApi};
 use chrono::{DateTime, Utc};
-use log::{info, error};
-use tokio;
 use clap::Parser;
-use network_shared::{BlockUpdate, UtxoUpdate, SocketTransport, TransportError};
+use log::{error, info};
+use network_shared::{BlockUpdate, SocketTransport, TransportError, UtxoUpdate};
+use tokio;
 
 // Custom error types
 #[derive(Debug)]
@@ -53,16 +53,16 @@ type Result<T> = std::result::Result<T, IndexerError>;
 struct Args {
     #[arg(long, default_value = "/tmp/network-utxos.sock")]
     socket_path: String,
-    
+
     #[arg(long, default_value = "user")]
     rpc_user: String,
-    
+
     #[arg(long, default_value = "password")]
     rpc_password: String,
-    
+
     #[arg(long, default_value = "localhost")]
     rpc_host: String,
-    
+
     #[arg(long, default_value = "18443")]
     rpc_port: u16,
 
@@ -90,15 +90,15 @@ impl BitcoinIndexer {
     ) -> Result<Self> {
         let rpc_url = format!("http://{}:{}", rpc_host, rpc_port);
         let auth = Auth::UserPass(rpc_user.to_string(), rpc_password.to_string());
-        let rpc_client = Client::new(&rpc_url, auth)
-            .map_err(IndexerError::BitcoinRPC)?;
-        
+        let rpc_client = Client::new(&rpc_url, auth).map_err(IndexerError::BitcoinRPC)?;
+
         // Validate start block
         let chain_height = rpc_client.get_block_count()? as i32;
         if start_height < 0 || start_height > chain_height {
-            return Err(IndexerError::InvalidStartBlock(
-                format!("Start block {} is invalid. Chain height is {}", start_height, chain_height)
-            ));
+            return Err(IndexerError::InvalidStartBlock(format!(
+                "Start block {} is invalid. Chain height is {}",
+                start_height, chain_height
+            )));
         }
 
         let socket_transport = SocketTransport::new(socket_path);
@@ -115,11 +115,12 @@ impl BitcoinIndexer {
     fn get_block_data(&self, block_hash: &BlockHash) -> Result<BlockUpdate> {
         let block = self.rpc_client.get_block(block_hash)?;
         let block_info = self.rpc_client.get_block_info(block_hash)?;
-        
+
         let timestamp = DateTime::<Utc>::from_timestamp(block.header.time as i64, 0)
             .ok_or(IndexerError::InvalidTimestamp)?;
 
-        let utxo_updates = self.process_transactions(&block, block_info.height as i32, timestamp)?;
+        let utxo_updates =
+            self.process_transactions(&block, block_info.height as i32, timestamp)?;
 
         Ok(BlockUpdate {
             height: block_info.height as i32,
@@ -130,10 +131,10 @@ impl BitcoinIndexer {
     }
 
     fn process_transactions(
-        &self, 
-        block: &Block, 
-        height: i32, 
-        block_time: DateTime<Utc>
+        &self,
+        block: &Block,
+        height: i32,
+        block_time: DateTime<Utc>,
     ) -> Result<Vec<UtxoUpdate>> {
         let mut utxo_updates = Vec::new();
 
@@ -151,12 +152,17 @@ impl BitcoinIndexer {
                     }
                     continue;
                 }
-                
-                let prev_tx = self.rpc_client.get_raw_transaction(&input.previous_output.txid, None)?;
+
+                let prev_tx = self
+                    .rpc_client
+                    .get_raw_transaction(&input.previous_output.txid, None)?;
                 let prev_output = &prev_tx.output[input.previous_output.vout as usize];
-                
+
                 let spent_utxo = UtxoUpdate {
-                    id: format!("{}:{}", input.previous_output.txid, input.previous_output.vout),
+                    id: format!(
+                        "{}:{}",
+                        input.previous_output.txid, input.previous_output.vout
+                    ),
                     address: extract_address(prev_output.script_pubkey.clone(), self.network)?,
                     public_key: extract_public_key(&input.witness),
                     txid: input.previous_output.txid.to_string(),
@@ -170,7 +176,7 @@ impl BitcoinIndexer {
                     spent_at: Some(block_time),
                     spent_block: Some(height),
                 };
-                
+
                 utxo_updates.push(spent_utxo);
             }
 
@@ -183,10 +189,10 @@ impl BitcoinIndexer {
                     // Regular transaction output
                     (
                         extract_address(output.script_pubkey.clone(), self.network)?,
-                        determine_script_type(output.script_pubkey.clone())
+                        determine_script_type(output.script_pubkey.clone()),
                     )
                 };
-            
+
                 let utxo = UtxoUpdate {
                     id: format!("{}:{}", tx.txid(), vout),
                     address,
@@ -202,7 +208,7 @@ impl BitcoinIndexer {
                     spent_at: None,
                     spent_block: None,
                 };
-                
+
                 utxo_updates.push(utxo);
             }
         }
@@ -221,29 +227,31 @@ impl BitcoinIndexer {
             return Ok(0);
         }
 
-        let blocks_to_process = std::cmp::min(
-            current_height - self.last_processed_height,
-            max_blocks
-        );
+        let blocks_to_process =
+            std::cmp::min(current_height - self.last_processed_height, max_blocks);
 
         if blocks_to_process == 0 {
             return Ok(0);
         }
 
-        info!("Processing {} new blocks from height {}", 
-            blocks_to_process, 
+        info!(
+            "Processing {} new blocks from height {}",
+            blocks_to_process,
             self.last_processed_height + 1
         );
 
-        for height in self.last_processed_height + 1..=self.last_processed_height + blocks_to_process {
+        for height in
+            self.last_processed_height + 1..=self.last_processed_height + blocks_to_process
+        {
             let block_hash = self.rpc_client.get_block_hash(height as u64)?;
             let block_data = self.get_block_data(&block_hash)?;
             self.send_block_update(&block_data).await?;
         }
 
         self.last_processed_height += blocks_to_process;
-        
-        info!("Successfully processed blocks up to height {}", 
+
+        info!(
+            "Successfully processed blocks up to height {}",
             self.last_processed_height
         );
 
@@ -251,7 +259,10 @@ impl BitcoinIndexer {
     }
 
     pub async fn run(&mut self, poll_interval: Duration) -> Result<()> {
-        info!("Starting Bitcoin UTXO indexer from block {}", self.start_height);
+        info!(
+            "Starting Bitcoin UTXO indexer from block {}",
+            self.start_height
+        );
 
         loop {
             if let Err(e) = self.process_new_blocks(200).await {
@@ -282,7 +293,10 @@ fn determine_script_type(script: bitcoincore_rpc::bitcoin::ScriptBuf) -> String 
     }
 }
 
-fn extract_address(script: bitcoincore_rpc::bitcoin::ScriptBuf, network: Network) -> Result<String> {  
+fn extract_address(
+    script: bitcoincore_rpc::bitcoin::ScriptBuf,
+    network: Network,
+) -> Result<String> {
     Address::from_script(&script, network)
         .map(|addr| addr.to_string())
         .map_err(|_| IndexerError::ScriptParsing("Failed to parse address from script".to_string()))
