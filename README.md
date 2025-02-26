@@ -6,21 +6,21 @@ A high-performance Bitcoin UTXO indexer and database for tracking and querying U
 
 This repository contains two main services:
 
-1. **network-indexer**: A Bitcoin UTXO indexer that monitors the blockchain and sends updates via Unix socket
-2. **network-utxos**: A UTXO database that stores and provides query endpoints for UTXO data
+1. **indexer**: A Bitcoin UTXO indexer that monitors the blockchain and sends updates via Unix socket
+2. **storage**: A UTXO database that stores and provides query endpoints for UTXO data
 3. **network-shared**: Shared code and data models used by both services
 
 These services use a high-performance communication method via Unix sockets with binary serialization (bincode) to minimize latency.
 
 ## Architecture
 
-### network-indexer
+### indexer
 - Connects to a Bitcoin node via RPC
 - Processes blocks and tracks UTXO creation and spending
 - Sends updates to the UTXO database via Unix socket
 - Optimized for fast processing of blockchain data
 
-### network-utxos
+### storage
 - Stores UTXO data in SQLite or CSV (configurable)
 - Provides REST API for querying UTXOs
 - Receives updates via Unix socket for maximum performance
