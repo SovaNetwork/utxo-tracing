@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  bitcoin:
+    image: ruimarinho/bitcoin-core:25.0
+    command:
+      - -regtest=1
+      - -server=1
+      - -rpcuser=user
+      - -rpcpassword=password
+      - -rpcallowip=0.0.0.0/0
+      - -rpcbind=0.0.0.0
+    ports:
+      - "18443:18443"
+    volumes:
+      - bitcoin-data:/data
+
+  network-indexer:
+    build:
+      context: .
+      dockerfile: network-indexer/Dockerfile
+    depends_on:
+      - bitcoin
+    environment:
+      - RUST_LOG=info
+      - RPC_HOST=bitcoin
+      - RPC_PORT=18443
+      - RPC_USER=user
+      - RPC_PASSWORD=password
+      - SOCKET_PATH=/tmp/network-utxos.sock
+    volumes:
+      - socket-volume:/tmp
+
+  network-utxos:
+    build:
+      context: .
+      dockerfile: network-utxos/Dockerfile
+    ports:
+      - "5557:5557"
+    environment:
+      - RUST_LOG=info
+      - SOCKET_PATH=/tmp/network-utxos.sock
+      - DATASOURCE=sqlite
+    volumes:
+      - utxo-data:/data
+      - socket-volume:/tmp
+
+volumes:
+  bitcoin-data:
+  utxo-data:
+  socket-volume:
