@@ -30,7 +30,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from builder
-COPY --from=builder /usr/src/app/indexer/target/release/indexer /usr/local/bin/
+COPY --from=builder /usr/src/app/target/release/indexer /usr/local/bin/
 
 # Create a non-root user with specific UID
 RUN useradd -m -u 1001 service
