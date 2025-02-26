@@ -68,6 +68,12 @@ struct Args {
 
     #[arg(long, default_value = "0")]
     start_height: i32,
+    
+    #[arg(long, default_value = "500", help = "Polling interval in milliseconds")]
+    polling_rate: u64,
+    
+    #[arg(long, default_value = "200", help = "Maximum blocks to process in a batch")]
+    max_blocks_per_batch: i32,
 }
 
 struct BitcoinIndexer {
@@ -76,6 +82,7 @@ struct BitcoinIndexer {
     socket_transport: SocketTransport,
     last_processed_height: i32,
     start_height: i32,
+    max_blocks_per_batch: i32,
 }
 
 impl BitcoinIndexer {
@@ -87,6 +94,7 @@ impl BitcoinIndexer {
         rpc_port: u16,
         socket_path: &str,
         start_height: i32,
+        max_blocks_per_batch: i32,
     ) -> Result<Self> {
         let rpc_url = format!("http://{}:{}", rpc_host, rpc_port);
         let auth = Auth::UserPass(rpc_user.to_string(), rpc_password.to_string());
@@ -109,6 +117,7 @@ impl BitcoinIndexer {
             socket_transport,
             last_processed_height: start_height - 1,
             start_height,
+            max_blocks_per_batch,
         })
     }
 
@@ -221,14 +230,14 @@ impl BitcoinIndexer {
         Ok(())
     }
 
-    async fn process_new_blocks(&mut self, max_blocks: i32) -> Result<i32> {
+    async fn process_new_blocks(&mut self) -> Result<i32> {
         let current_height = self.rpc_client.get_block_count()? as i32;
         if current_height <= self.last_processed_height {
             return Ok(0);
         }
 
         let blocks_to_process =
-            std::cmp::min(current_height - self.last_processed_height, max_blocks);
+            std::cmp::min(current_height - self.last_processed_height, self.max_blocks_per_batch);
 
         if blocks_to_process == 0 {
             return Ok(0);
@@ -260,12 +269,13 @@ impl BitcoinIndexer {
 
     pub async fn run(&mut self, poll_interval: Duration) -> Result<()> {
         info!(
-            "Starting Bitcoin UTXO indexer from block {}",
-            self.start_height
+            "Starting Bitcoin UTXO indexer from block {} with polling interval of {:?}",
+            self.start_height,
+            poll_interval
         );
 
         loop {
-            if let Err(e) = self.process_new_blocks(200).await {
+            if let Err(e) = self.process_new_blocks().await {
                 error!("Error in indexer loop: {}", e);
             }
 
@@ -323,9 +333,10 @@ async fn main() -> std::result::Result<(), Box<dyn Error>> {
         args.rpc_port,
         &args.socket_path,
         args.start_height,
+        args.max_blocks_per_batch,
     )?;
 
-    indexer.run(Duration::from_secs(10)).await?;
+    indexer.run(Duration::from_millis(args.polling_rate)).await?;
 
     Ok(())
 }

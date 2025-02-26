@@ -49,7 +49,9 @@ ENV SOCKET_PATH="/tmp/network-utxos.sock" \
     RPC_PORT=18443 \
     RPC_USER="user" \
     RPC_PASSWORD="password" \
-    START_HEIGHT=0
+    START_HEIGHT=0 \
+    POLLING_RATE=500 \
+    MAX_BLOCKS_PER_BATCH=200
 
 # Use shell form to allow environment variable expansion
 CMD network-indexer \
@@ -58,4 +60,6 @@ CMD network-indexer \
     --rpc-port "$RPC_PORT" \
     --rpc-user "$RPC_USER" \
     --rpc-password "$RPC_PASSWORD" \
-    --start-height "$START_HEIGHT"
+    --start-height "$START_HEIGHT" \
+    --polling-rate "$POLLING_RATE" \
+    --max-blocks-per-batch "$MAX_BLOCKS_PER_BATCH"

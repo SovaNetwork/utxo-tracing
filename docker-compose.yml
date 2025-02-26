@@ -17,35 +17,45 @@ services:
 
   network-indexer:
     build:
-      context: .
-      dockerfile: network-indexer/Dockerfile
-    depends_on:
-      - bitcoin
+      context: ./network-indexer
+      dockerfile: Dockerfile
     environment:
       - RUST_LOG=info
-      - RPC_HOST=bitcoin
+      - RPC_HOST=bitcoin-regtest
       - RPC_PORT=18443
       - RPC_USER=user
       - RPC_PASSWORD=password
       - SOCKET_PATH=/tmp/network-utxos.sock
+      - START_HEIGHT=${INDEXER_START_BLOCK:-0}
+      - POLLING_RATE=${INDEXER_POLLING_RATE:-500}
+      - MAX_BLOCKS_PER_BATCH=${INDEXER_MAX_BLOCKS:-200}
+    networks:
+      - bitcoin_network
+    depends_on:
+      - network-utxos
     volumes:
-      - socket-volume:/tmp
+      - socket:/tmp
 
   network-utxos:
     build:
-      context: .
-      dockerfile: network-utxos/Dockerfile
-    ports:
-      - "5557:5557"
+      context: ./network-utxos
+      dockerfile: Dockerfile
     environment:
       - RUST_LOG=info
-      - SOCKET_PATH=/tmp/network-utxos.sock
+      - HOST=0.0.0.0
+      - PORT=5557
+      - LOG_LEVEL=info
       - DATASOURCE=sqlite
+      - SOCKET_PATH=/tmp/network-utxos.sock
+    ports:
+      - "5557:5557"
+    networks:
+      - bitcoin_network
     volumes:
       - utxo-data:/data
-      - socket-volume:/tmp
+      - socket:/tmp
 
 volumes:
   bitcoin-data:
   utxo-data:
-  socket-volume:
+  socket:
