@@ -17,6 +17,9 @@ pub struct Args {
     #[arg(long, default_value = "/tmp/network-utxos.sock")]
     pub socket_path: String,
 
+    #[arg(long, default_value = "regtest", help = "Bitcoin network (mainnet, testnet, regtest, signet)")]
+    pub network: String,
+
     #[arg(long, default_value = "user")]
     pub rpc_user: String,
 
@@ -39,6 +42,19 @@ pub struct Args {
     pub max_blocks_per_batch: i32,
 }
 
+impl Args {
+    /// Parse the network string into a Bitcoin Network enum
+    pub fn parse_network(&self) -> Network {
+        match self.network.to_lowercase().as_str() {
+            "mainnet" => Network::Bitcoin,
+            "regtest" => Network::Regtest,
+            "signet" => Network::Signet,
+            "testnet" => Network::Testnet,
+            _ => panic!("Unsupported network: {}", self.network),
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
@@ -46,7 +62,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
     let mut indexer = BitcoinIndexer::new(
-        Network::Regtest,
+        args.parse_network(),
         &args.rpc_user,
         &args.rpc_password,
         &args.rpc_host,
