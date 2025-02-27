@@ -1,6 +1,8 @@
-# Bitcoin UTXO Tracing
+# &#8383;itcoin UTXO Tracing
 
 A high-performance Bitcoin UTXO indexer and database for tracking and querying UTXO data with blockchain reorganization handling.
+
+This service is used by [Sova validators](https://github.com/SovaNetwork/sova-reth) to get spendable utxos for network signing and other read operations.
 
 ## Overview
 
