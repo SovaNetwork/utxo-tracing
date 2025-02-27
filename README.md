@@ -23,7 +23,7 @@ These services use a high-performance communication method via Unix sockets with
 ### storage
 - Stores UTXO data in SQLite or CSV (configurable)
 - Provides REST API for querying UTXOs
-- Receives updates via Unix socket for maximum performance
+- Receives updates via Unix socket
 - Supports querying UTXOs at specific block heights
 
 ### network-shared
