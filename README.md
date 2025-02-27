@@ -1,4 +1,4 @@
-# &#8383;itcoin UTXO Tracing
+# &#8383;itcoin UTXO Tracing :orange_book:
 
 A high-performance Bitcoin UTXO indexer and database for tracking and querying UTXO data with blockchain reorganization handling.
 
