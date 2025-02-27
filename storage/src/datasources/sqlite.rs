@@ -38,25 +38,36 @@ impl UtxoSqliteDatasource {
     }
 
     fn run_migrations(&self) -> StorageResult<()> {
-        let migrations = Migrations::new(vec![M::up(
-            "CREATE TABLE IF NOT EXISTS utxo (
-                vid INTEGER PRIMARY KEY AUTOINCREMENT,
-                id TEXT NOT NULL UNIQUE,
-                address TEXT NOT NULL,
-                public_key TEXT,
-                txid TEXT NOT NULL,
-                vout INTEGER NOT NULL,
-                amount INTEGER NOT NULL,
-                script_pub_key TEXT NOT NULL,
-                script_type TEXT NOT NULL,
-                created_at TEXT NOT NULL,      -- ISO 8061 format for timestamptz
-                block_height INTEGER NOT NULL,
-                spent_txid TEXT,
-                spent_at TEXT,                 -- ISO 8061 format for timestamptz
-                spent_block INTEGER,
-                UNIQUE(txid, vout)             -- Ensure (txid, vout) is unique
-            )",
-        )]);
+        let migrations = Migrations::new(vec![
+            M::up(
+                "CREATE TABLE IF NOT EXISTS blocks (
+                    height INTEGER NOT NULL PRIMARY KEY,
+                    hash TEXT NOT NULL UNIQUE,
+                    timestamp TEXT NOT NULL,
+                    is_main_chain BOOLEAN NOT NULL DEFAULT 1,
+                    is_final BOOLEAN NOT NULL DEFAULT 0
+                )",
+            ),
+            M::up(
+                "CREATE TABLE IF NOT EXISTS utxo (
+                    vid INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id TEXT NOT NULL UNIQUE,
+                    address TEXT NOT NULL,
+                    public_key TEXT,
+                    txid TEXT NOT NULL,
+                    vout INTEGER NOT NULL,
+                    amount INTEGER NOT NULL,
+                    script_pub_key TEXT NOT NULL,
+                    script_type TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    block_height INTEGER NOT NULL,
+                    spent_txid TEXT,
+                    spent_at TEXT,
+                    spent_block INTEGER,
+                    UNIQUE(txid, vout)
+                )",
+            ),
+        ]);
 
         let mut conn = self
             .conn
@@ -125,7 +136,7 @@ impl Datasource for UtxoSqliteDatasource {
             .conn
             .get()
             .map_err(|e| StorageError::DatabaseConnectionFailed(e.to_string()))?;
-
+    
         let query = "
             SELECT MAX(
                 CASE
@@ -135,9 +146,13 @@ impl Datasource for UtxoSqliteDatasource {
             ) AS latest_block
             FROM utxo;
         ";
-
-        conn.query_row(query, [], |row| row.get(0))
-            .map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))
+    
+        // Handle the case where there are no UTXOs yet
+        let result = conn.query_row(query, [], |row| row.get::<_, Option<i32>>(0))
+            .map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
+        
+        // Return 0 if no UTXOs exist yet
+        Ok(result.unwrap_or(0))
     }
 
     fn process_block_utxos(&self, changes: &PendingChanges) -> StorageResult<()> {
@@ -417,5 +432,115 @@ impl Datasource for UtxoSqliteDatasource {
         }
 
         Ok(results)
+    }
+
+    fn store_block(&self, height: i32, hash: &str, timestamp: DateTime<Utc>) -> StorageResult<()> {
+        let conn = self.conn.get().map_err(|e| 
+            StorageError::DatabaseConnectionFailed(e.to_string()))?;
+            
+        conn.execute(
+            "INSERT INTO blocks (height, hash, timestamp) 
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(height) DO UPDATE SET 
+                hash = excluded.hash,
+                timestamp = excluded.timestamp,
+                is_main_chain = 1",
+            params![height, hash, timestamp.to_rfc3339()],
+        ).map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
+        
+        Ok(())
+    }
+    
+    fn get_block_hash(&self, height: i32) -> StorageResult<Option<String>> {
+        // If height is negative or zero, it's invalid
+        if height < 0 {
+            return Err(StorageError::InvalidBlockHeight(height));
+        }
+        
+        // For height 0, if it doesn't exist yet, return an empty string
+        // This avoids errors when checking for reorgs before any blocks are processed
+        if height == 0 {
+            let conn = self.conn.get().map_err(|e| 
+                StorageError::DatabaseConnectionFailed(e.to_string()))?;
+            
+            // Check if height 0 exists in the blocks table
+            let count: i32 = conn.query_row(
+                "SELECT COUNT(*) FROM blocks WHERE height = 0",
+                [],
+                |row| row.get(0),
+            ).unwrap_or(0);
+            
+            if count == 0 {
+                return Ok(Some("".to_string()));
+            }
+        }
+
+        let conn = self.conn.get().map_err(|e| 
+            StorageError::DatabaseConnectionFailed(e.to_string()))?;
+    
+        let result = conn.query_row(
+            "SELECT hash FROM blocks WHERE height = ? AND is_main_chain = 1",
+            params![height],
+            |row| row.get(0),
+        );
+        
+        match result {
+            Ok(hash) => Ok(Some(hash)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(StorageError::DatabaseQueryFailed(e.to_string())),
+        }
+    }
+    
+    fn mark_blocks_as_final(&self, threshold: i32) -> StorageResult<()> {
+        let conn = self.conn.get().map_err(|e| 
+            StorageError::DatabaseConnectionFailed(e.to_string()))?;
+        
+        conn.execute(
+            "UPDATE blocks SET is_final = 1 WHERE height <= ? AND is_final = 0",
+            params![threshold],
+        ).map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
+        
+        Ok(())
+    }
+    
+    fn mark_blocks_after_height_not_main_chain(&self, height: i32) -> StorageResult<()> {
+        let conn = self.conn.get().map_err(|e| 
+            StorageError::DatabaseConnectionFailed(e.to_string()))?;
+        
+        conn.execute(
+            "UPDATE blocks SET is_main_chain = 0 WHERE height > ?",
+            params![height],
+        ).map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
+        
+        Ok(())
+    }
+    
+    fn revert_utxos_after_height(&self, height: i32) -> StorageResult<()> {
+        let mut conn = self.conn.get().map_err(|e| 
+            StorageError::DatabaseConnectionFailed(e.to_string()))?;
+        
+        let tx = conn.transaction().map_err(|e| 
+            StorageError::DatabaseQueryFailed(format!("Failed to start transaction: {}", e)))?;
+        
+        // 1. Unspend UTXOs that were spent after this height
+        tx.execute(
+            "UPDATE utxo SET 
+                spent_txid = NULL, 
+                spent_at = NULL, 
+                spent_block = NULL 
+             WHERE spent_block > ?",
+            params![height],
+        ).map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
+        
+        // 2. Delete UTXOs that were created after this height
+        tx.execute(
+            "DELETE FROM utxo WHERE block_height > ?",
+            params![height],
+        ).map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
+        
+        tx.commit().map_err(|e| 
+            StorageError::DatabaseQueryFailed(format!("Failed to commit transaction: {}", e)))?;
+        
+        Ok(())
     }
 }

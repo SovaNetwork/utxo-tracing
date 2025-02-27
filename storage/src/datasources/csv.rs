@@ -1,5 +1,7 @@
+use std::collections::HashSet;
 use std::{collections::HashMap, fs, io, path::PathBuf, sync::Arc};
 
+use chrono::{DateTime, Utc};
 use csv::Reader;
 use parking_lot::RwLock;
 use tracing::error;
@@ -22,6 +24,10 @@ pub struct UtxoCSVDatasource {
     utxos: RwLock<HashMap<String, HashMap<String, UtxoUpdate>>>,
     blocks: RwLock<HashMap<i32, HashMap<String, Vec<UtxoUpdate>>>>,
     latest_block: RwLock<i32>,
+    block_hashes: RwLock<HashMap<i32, String>>,
+    block_timestamps: RwLock<HashMap<i32, DateTime<Utc>>>,
+    finalized_heights: RwLock<HashSet<i32>>,
+    main_chain_heights: RwLock<HashSet<i32>>,
     data_dir: PathBuf,
 }
 
@@ -35,6 +41,10 @@ impl UtxoCSVDatasource {
             utxos: Default::default(),
             blocks: Default::default(),
             latest_block: Default::default(),
+            block_hashes: Default::default(),
+            block_timestamps: Default::default(),
+            finalized_heights: Default::default(),
+            main_chain_heights: Default::default(),
             data_dir,
         });
 
@@ -273,5 +283,82 @@ impl Datasource for UtxoCSVDatasource {
             .unwrap_or_default();
 
         Ok(result)
+    }
+
+    fn store_block(&self, height: i32, hash: &str, timestamp: DateTime<Utc>) -> StorageResult<()> {
+        {
+            let mut block_hashes = self.block_hashes.write();
+            block_hashes.insert(height, hash.to_string());
+        }
+        {
+            let mut block_timestamps = self.block_timestamps.write();
+            block_timestamps.insert(height, timestamp);
+        }
+        {
+            let mut main_chain_heights = self.main_chain_heights.write();
+            main_chain_heights.insert(height);
+        }
+        Ok(())
+    }
+
+    fn get_block_hash(&self, height: i32) -> StorageResult<Option<String>> {
+        let block_hashes = self.block_hashes.read();
+        let main_chain_heights = self.main_chain_heights.read();
+        
+        if main_chain_heights.contains(&height) {
+            Ok(block_hashes.get(&height).cloned())
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn mark_blocks_as_final(&self, threshold: i32) -> StorageResult<()> {
+        let mut finalized_heights = self.finalized_heights.write();
+        for height in 0..=threshold {
+            finalized_heights.insert(height);
+        }
+        Ok(())
+    }
+
+    fn mark_blocks_after_height_not_main_chain(&self, height: i32) -> StorageResult<()> {
+        let mut main_chain_heights = self.main_chain_heights.write();
+        
+        // Remove all heights greater than the specified height
+        main_chain_heights.retain(|&h| h <= height);
+        
+        Ok(())
+    }
+
+    fn revert_utxos_after_height(&self, height: i32) -> StorageResult<()> {
+        // 1. Get all UTXOs
+        let mut utxos = self.utxos.write();
+        
+        // 2. For each address's UTXOs
+        for address_utxos in utxos.values_mut() {
+            // 2a. Remove UTXOs created after height
+            address_utxos.retain(|_, utxo| utxo.block_height <= height);
+            
+            // 2b. Unspend UTXOs spent after height
+            for utxo in address_utxos.values_mut() {
+                if let Some(spent_height) = utxo.spent_block {
+                    if spent_height > height {
+                        utxo.spent_txid = None;
+                        utxo.spent_at = None;
+                        utxo.spent_block = None;
+                    }
+                }
+            }
+        }
+        
+        // 3. Update blocks data
+        let mut blocks = self.blocks.write();
+        
+        // 3a. Remove all blocks after height
+        blocks.retain(|&block_height, _| block_height <= height);
+        
+        // 4. Update latest block
+        *self.latest_block.write() = height;
+        
+        Ok(())
     }
 }

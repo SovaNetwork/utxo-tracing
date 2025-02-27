@@ -3,6 +3,7 @@ pub mod sqlite;
 
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use network_shared::UtxoUpdate;
 
 use crate::error::{StorageError, StorageResult};
@@ -24,6 +25,13 @@ pub trait Datasource {
         address: &str,
     ) -> StorageResult<Vec<UtxoUpdate>>;
     fn get_all_utxos_for_block(&self, block_height: i32) -> StorageResult<Vec<UtxoUpdate>>;
+    
+    // New methods for re-org handling
+    fn store_block(&self, height: i32, hash: &str, timestamp: DateTime<Utc>) -> StorageResult<()>;
+    fn get_block_hash(&self, height: i32) -> StorageResult<Option<String>>;
+    fn mark_blocks_as_final(&self, threshold: i32) -> StorageResult<()>;
+    fn mark_blocks_after_height_not_main_chain(&self, height: i32) -> StorageResult<()>;
+    fn revert_utxos_after_height(&self, height: i32) -> StorageResult<()>;
 }
 
 // Factory function to create datasource based on type

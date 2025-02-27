@@ -1,10 +1,21 @@
+mod constants;
 mod error;
 
+pub use constants::FINALITY_CONFIRMATIONS;
 pub use error::TransportError;
 
 use chrono::{DateTime, Utc};
 use error::Result;
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum NetworkMessage {
+    BlockUpdate(BlockUpdate),
+    ReorgEvent { fork_height: i32 },
+    GetBlockHash { height: i32 },
+    BlockHashResponse { hash: String },
+    UpdateFinalityStatus { current_height: i32 },
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BlockUpdate {
@@ -51,14 +62,92 @@ impl SocketTransport {
         // Connect to socket
         let mut stream = UnixStream::connect(&self.socket_path).await?;
 
-        // Serialize with bincode
-        let data = bincode::serialize(update)?;
+        let message = NetworkMessage::BlockUpdate(update.clone());
+        let data = bincode::serialize(&message)?;
 
         // Send size header followed by data
         let size = data.len() as u32;
         stream.write_all(&size.to_le_bytes()).await?;
         stream.write_all(&data).await?;
 
+        Ok(())
+    }
+
+    pub async fn send_reorg_event(&self, fork_height: i32) -> Result<()> {
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::UnixStream;
+        
+        // Connect to socket
+        let mut stream = UnixStream::connect(&self.socket_path).await?;
+
+        let message = NetworkMessage::ReorgEvent { fork_height };
+        let data = bincode::serialize(&message)?;
+
+        // Send size header followed by data
+        let size = data.len() as u32;
+        stream.write_all(&size.to_le_bytes()).await?;
+        stream.write_all(&data).await?;
+
+        Ok(())
+    }
+
+    pub async fn get_block_hash(&self, height: i32) -> Result<String> {
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::UnixStream;
+        use tokio::io::AsyncReadExt;
+
+        // Connect to socket
+        let mut stream = UnixStream::connect(&self.socket_path).await?;
+
+        // Create a query message
+        let message = NetworkMessage::GetBlockHash { height };
+        
+        // Serialize with bincode
+        let data = bincode::serialize(&message)?;
+
+        // Send size header followed by data
+        let size = data.len() as u32;
+        stream.write_all(&size.to_le_bytes()).await?;
+        stream.write_all(&data).await?;
+
+        // Read the response size
+        let mut size_buf = [0u8; 4];
+        stream.read_exact(&mut size_buf).await?;
+        let size = u32::from_le_bytes(size_buf) as usize;
+
+        // Read the response data
+        let mut data = vec![0u8; size];
+        stream.read_exact(&mut data).await?;
+
+        // Deserialize the response
+        let response: NetworkMessage = bincode::deserialize(&data)?;
+        
+        match response {
+            NetworkMessage::BlockHashResponse { hash } => Ok(hash),
+            _ => Err(TransportError::IoError(std::io::Error::new(
+                std::io::ErrorKind::InvalidData, 
+                "Unexpected response type"
+            ))),
+        }
+    }
+
+    pub async fn send_update_finality_status(&self, current_height: i32) -> Result<()> {
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::UnixStream;
+    
+        let message = NetworkMessage::UpdateFinalityStatus { current_height };
+        
+        // Connect to socket
+        let mut stream = UnixStream::connect(&self.socket_path).await?;
+    
+        // Serialize with bincode
+        let data = bincode::serialize(&message)?;
+    
+        // Send size header followed by data
+        let size = data.len() as u32;
+        stream.write_all(&size.to_le_bytes()).await?;
+        stream.write_all(&data).await?;
+    
         Ok(())
     }
 }
