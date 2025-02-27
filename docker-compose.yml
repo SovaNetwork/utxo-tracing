@@ -1,27 +1,41 @@
-version: '3.8'
-
 services:
   bitcoin:
-    image: ruimarinho/bitcoin-core:25.0
+    image: ruimarinho/bitcoin-core@sha256:79dd32455cf8c268c63e5d0114cc9882a8857e942b1d17a6b8ec40a6d44e3981 # ruimarinho/bitcoin-core:24
     command:
       - -regtest=1
       - -server=1
-      - -rpcuser=user
-      - -rpcpassword=password
+      - -txindex=1
       - -rpcallowip=0.0.0.0/0
       - -rpcbind=0.0.0.0
+      - -rpcuser=user
+      - -rpcpassword=password
     ports:
       - "18443:18443"
     volumes:
       - bitcoin-data:/data
+    networks:
+      - bitcoin_network
+    healthcheck:
+      test: [
+        "CMD",
+        "bitcoin-cli",
+        "-regtest",
+        "-rpcuser=user",
+        "-rpcpassword=password",
+        "getblockchaininfo"
+      ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   network-indexer:
     build:
-      context: ./network-indexer
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./indexer/Dockerfile
     environment:
       - RUST_LOG=info
-      - RPC_HOST=bitcoin-regtest
+      - NETWORK=regtest
+      - RPC_HOST=bitcoin
       - RPC_PORT=18443
       - RPC_USER=user
       - RPC_PASSWORD=password
@@ -32,14 +46,17 @@ services:
     networks:
       - bitcoin_network
     depends_on:
-      - network-utxos
+      bitcoin:
+        condition: service_healthy
+      network-utxos:
+        condition: service_started
     volumes:
       - socket:/tmp
 
   network-utxos:
     build:
-      context: ./network-utxos
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./storage/Dockerfile
     environment:
       - RUST_LOG=info
       - HOST=0.0.0.0
@@ -54,6 +71,9 @@ services:
     volumes:
       - utxo-data:/data
       - socket:/tmp
+
+networks:
+  bitcoin_network:
 
 volumes:
   bitcoin-data:

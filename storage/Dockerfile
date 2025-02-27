@@ -15,11 +15,8 @@ RUN apt-get update && \
 # Copy entire utxo-tracing directory
 COPY . .
 
-# Set working directory to storage
-WORKDIR /usr/src/app/storage
-
-# Build the application
-RUN cargo build --release
+# Build the application from the workspace root
+RUN cargo build --release --package storage
 
 # Final stage
 FROM debian:bookworm-slim

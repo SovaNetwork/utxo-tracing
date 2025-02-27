@@ -14,11 +14,8 @@ RUN apt-get update && \
 # Copy entire utxo-tracing directory
 COPY . .
 
-# Set working directory to indexer
-WORKDIR /usr/src/app/indexer
-
-# Build the application
-RUN cargo build --release
+# Build the application from the workspace root
+RUN cargo build --release --package indexer
 
 # Final stage
 FROM debian:bookworm-slim
@@ -41,6 +38,7 @@ ENV RUST_LOG=info
 
 # Set default values for arguments
 ENV SOCKET_PATH="/tmp/network-utxos.sock" \
+    NETWORK="regtest" \
     RPC_HOST="bitcoin" \
     RPC_PORT=18443 \
     RPC_USER="user" \
@@ -52,6 +50,7 @@ ENV SOCKET_PATH="/tmp/network-utxos.sock" \
 # Use shell form to allow environment variable expansion
 CMD indexer \
     --socket-path "$SOCKET_PATH" \
+    --network "$NETWORK" \
     --rpc-host "$RPC_HOST" \
     --rpc-port "$RPC_PORT" \
     --rpc-user "$RPC_USER" \
