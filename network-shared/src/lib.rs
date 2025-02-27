@@ -76,7 +76,7 @@ impl SocketTransport {
     pub async fn send_reorg_event(&self, fork_height: i32) -> Result<()> {
         use tokio::io::AsyncWriteExt;
         use tokio::net::UnixStream;
-        
+
         // Connect to socket
         let mut stream = UnixStream::connect(&self.socket_path).await?;
 
@@ -92,16 +92,16 @@ impl SocketTransport {
     }
 
     pub async fn get_block_hash(&self, height: i32) -> Result<String> {
+        use tokio::io::AsyncReadExt;
         use tokio::io::AsyncWriteExt;
         use tokio::net::UnixStream;
-        use tokio::io::AsyncReadExt;
 
         // Connect to socket
         let mut stream = UnixStream::connect(&self.socket_path).await?;
 
         // Create a query message
         let message = NetworkMessage::GetBlockHash { height };
-        
+
         // Serialize with bincode
         let data = bincode::serialize(&message)?;
 
@@ -121,12 +121,12 @@ impl SocketTransport {
 
         // Deserialize the response
         let response: NetworkMessage = bincode::deserialize(&data)?;
-        
+
         match response {
             NetworkMessage::BlockHashResponse { hash } => Ok(hash),
             _ => Err(TransportError::IoError(std::io::Error::new(
-                std::io::ErrorKind::InvalidData, 
-                "Unexpected response type"
+                std::io::ErrorKind::InvalidData,
+                "Unexpected response type",
             ))),
         }
     }
@@ -134,20 +134,20 @@ impl SocketTransport {
     pub async fn send_update_finality_status(&self, current_height: i32) -> Result<()> {
         use tokio::io::AsyncWriteExt;
         use tokio::net::UnixStream;
-    
+
         let message = NetworkMessage::UpdateFinalityStatus { current_height };
-        
+
         // Connect to socket
         let mut stream = UnixStream::connect(&self.socket_path).await?;
-    
+
         // Serialize with bincode
         let data = bincode::serialize(&message)?;
-    
+
         // Send size header followed by data
         let size = data.len() as u32;
         stream.write_all(&size.to_le_bytes()).await?;
         stream.write_all(&data).await?;
-    
+
         Ok(())
     }
 }

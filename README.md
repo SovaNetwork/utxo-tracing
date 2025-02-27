@@ -40,6 +40,8 @@ The UTXO database service provides these HTTP endpoints:
 - `GET /spendable-utxos/block/{height}/address/{address}`: Get spendable UTXOs for an address at a specific block height
 - `GET /select-utxos/block/{height}/address/{address}/amount/{amount}`: Select UTXOs for a specified amount
 
+*Note: querying data for blocks less than 6 blocks behind the chain tip are subject to change based on the reorg mechanics described below.*
+
 ## Installation
 
 ### Using Docker Compose
@@ -80,74 +82,10 @@ docker-compose up -d
 | DATASOURCE | Storage backend (csv/sqlite) | sqlite |
 | SOCKET_PATH | Path to Unix socket | /tmp/network-utxos.sock |
 
-## Reorg Mechanics
 
-### Blockchain Reorganization Handling
+## Blockchain Reorganization Handling
 
-The system is designed to handle blockchain reorganizations (reorgs) through several key mechanisms:
-
-1. **Block Height Tracking**
-   - Each UTXO is associated with its creation block height
-   - Spending information includes the block where the UTXO was spent
-   - This allows for precise tracking of UTXO state at any given block height
-
-2. **Flexible State Management**
-    - State transitions are tracked with block-level precision
-    - UTXOs can be in 3 potential states:
-        #### 1. Created
-        - This is the initial state when a new UTXO is generated
-        - Occurs when a transaction creates a new output that can potentially be spent
-        - Recorded with:
-                - Creation transaction ID
-                - Output index (vout)
-                - Amount
-                - Receiving address
-                - Block height where it was created
-        - At this point, the UTXO is available but not yet marked as spendable
-
-        #### 2. Unspent
-        - The primary state for usable funds
-        - Indicates the UTXO has not been used as an input in any subsequent transaction
-        - Can be selected for future transactions
-        - Tracked with all the creation details, plus its current spendable status
-        - In the database, this means the `spent_txid`, `spent_at`, and `spent_block` fields are `NULL`/`None`
-
-        #### 3. Spent
-        - Occurs when the UTXO is used as an input in another transaction
-        - Marked with:
-            - The transaction ID that spent it
-            - Timestamp of spending
-            - Block height where it was spent
-        - No longer available for future transactions
-        - Maintains historical record of its entire lifecycle
-
-3. **Idempotent Update Mechanism**
-   - The `process_block_utxos` method in the database ensures that:
-     - New UTXOs can be inserted
-     - Existing UTXOs can be updated
-     - Spending information can be modified without losing historical data
-
-4. **Rollback Capabilities**
-   - Database implementations support atomic updates
-   - Transactions are used to ensure data consistency during block processing
-
-### Example Reorg Scenario
-
-Consider a blockchain reorganization:
-```
-Block 100 (original chain):
-- TX1 creates UTXO-A at address X
-- TX2 spends UTXO-A
-
-Block 100 (reorganized chain):
-- Different transactions
-- UTXO-A remains unspent
-```
-
-In this scenario, the system will:
-- Rollback the spending of UTXO-A
-- Restore UTXO-A to an unspent state
-- Update block-level metadata accordingly
+The system is designed to handle blockchain reorganizations (reorgs) for up to 6 blocks behind the current block. 
 
 ## Performance Considerations
 

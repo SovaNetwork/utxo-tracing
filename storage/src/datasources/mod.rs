@@ -25,8 +25,6 @@ pub trait Datasource {
         address: &str,
     ) -> StorageResult<Vec<UtxoUpdate>>;
     fn get_all_utxos_for_block(&self, block_height: i32) -> StorageResult<Vec<UtxoUpdate>>;
-    
-    // New methods for re-org handling
     fn store_block(&self, height: i32, hash: &str, timestamp: DateTime<Utc>) -> StorageResult<()>;
     fn get_block_hash(&self, height: i32) -> StorageResult<Option<String>>;
     fn mark_blocks_as_final(&self, threshold: i32) -> StorageResult<()>;

@@ -189,37 +189,37 @@ impl UtxoDatabase {
     pub async fn update_finality_status(&self, current_height: i32) -> StorageResult<()> {
         // Calculate new finality threshold
         let finality_threshold = current_height - FINALITY_CONFIRMATIONS + 1;
-        
+
         if finality_threshold > 0 {
             // Mark all blocks at or below threshold as final
             self.datasource.mark_blocks_as_final(finality_threshold)?;
-            
+
             info!(
                 threshold = finality_threshold,
                 "Updated finality status for blocks"
             );
         }
-        
+
         Ok(())
     }
-    
+
     pub async fn revert_to_height(&self, height: i32) -> StorageResult<()> {
         // If attempting to revert to a negative height, default to 0
         let height = std::cmp::max(height, 0);
-        
+
         // Get current finality threshold (safely)
         let latest_height = match self.get_latest_block() {
             Ok(h) => h,
             Err(_) => 0, // Default to 0 if no blocks exist
         };
-        
+
         // Never roll back past the finality threshold
         let finality_threshold = latest_height - network_shared::FINALITY_CONFIRMATIONS + 1;
         let finality_threshold = std::cmp::max(finality_threshold, 0); // Prevent negative thresholds
-        
+
         // Safe revert height
         let safe_revert_height = std::cmp::max(height, finality_threshold - 1);
-        
+
         // Log the revert operation
         if safe_revert_height != height {
             info!(
@@ -228,27 +228,34 @@ impl UtxoDatabase {
                 "Limiting rollback to respect finality assumption"
             );
         }
-        
+
         // If there are no blocks yet, there's nothing to revert
         if latest_height == 0 {
             return Ok(());
         }
-        
+
         // Revert non-final blocks
-        self.datasource.mark_blocks_after_height_not_main_chain(safe_revert_height)?;
-        self.datasource.revert_utxos_after_height(safe_revert_height)?;
-        
+        self.datasource
+            .mark_blocks_after_height_not_main_chain(safe_revert_height)?;
+        self.datasource
+            .revert_utxos_after_height(safe_revert_height)?;
+
         Ok(())
     }
-    
+
     pub fn get_block_hash(&self, height: i32) -> StorageResult<String> {
         match self.datasource.get_block_hash(height)? {
             Some(hash) => Ok(hash),
             None => Err(StorageError::BlockNotFound(height)),
         }
     }
-    
-    pub fn store_block(&self, height: i32, hash: &str, timestamp: DateTime<Utc>) -> StorageResult<()> {
+
+    pub fn store_block(
+        &self,
+        height: i32,
+        hash: &str,
+        timestamp: DateTime<Utc>,
+    ) -> StorageResult<()> {
         self.datasource.store_block(height, hash, timestamp)
     }
 }

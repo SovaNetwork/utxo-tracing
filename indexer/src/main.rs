@@ -17,7 +17,11 @@ pub struct Args {
     #[arg(long, default_value = "/tmp/network-utxos.sock")]
     pub socket_path: String,
 
-    #[arg(long, default_value = "regtest", help = "Bitcoin network (mainnet, testnet, regtest, signet)")]
+    #[arg(
+        long,
+        default_value = "regtest",
+        help = "Bitcoin network (mainnet, testnet, regtest, signet)"
+    )]
     pub network: String,
 
     #[arg(long, default_value = "user")]
@@ -34,11 +38,15 @@ pub struct Args {
 
     #[arg(long, default_value = "0")]
     pub start_height: i32,
-    
+
     #[arg(long, default_value = "500", help = "Polling interval in milliseconds")]
     pub polling_rate: u64,
-    
-    #[arg(long, default_value = "200", help = "Maximum blocks to process in a batch")]
+
+    #[arg(
+        long,
+        default_value = "200",
+        help = "Maximum blocks to process in a batch"
+    )]
     pub max_blocks_per_batch: i32,
 }
 
@@ -72,7 +80,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         args.max_blocks_per_batch,
     )?;
 
-    indexer.run(Duration::from_millis(args.polling_rate)).await?;
+    indexer
+        .run(Duration::from_millis(args.polling_rate))
+        .await?;
 
     Ok(())
 }

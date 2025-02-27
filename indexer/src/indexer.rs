@@ -57,7 +57,7 @@ impl BitcoinIndexer {
         })
     }
 
-    /// Gets block data for a given block hash
+    /// Gets block data for a given block hash and process transactions
     fn get_block_data(&self, block_hash: &BlockHash) -> Result<BlockUpdate> {
         let block = self.rpc_client.get_block(block_hash)?;
         let block_info = self.rpc_client.get_block_info(block_hash)?;
@@ -175,26 +175,28 @@ impl BitcoinIndexer {
         if current_height <= self.last_processed_height {
             return Ok(0);
         }
-    
+
         // First, check for reorgs
         if let Ok(true) = self.check_for_reorg().await {
             // A reorg was detected and handled, exit this cycle
             return Ok(0);
         }
-    
-        let blocks_to_process =
-            std::cmp::min(current_height - self.last_processed_height, self.max_blocks_per_batch);
-    
+
+        let blocks_to_process = std::cmp::min(
+            current_height - self.last_processed_height,
+            self.max_blocks_per_batch,
+        );
+
         if blocks_to_process == 0 {
             return Ok(0);
         }
-    
+
         info!(
             "Processing {} new blocks from height {}",
             blocks_to_process,
             self.last_processed_height + 1
         );
-    
+
         for height in
             self.last_processed_height + 1..=self.last_processed_height + blocks_to_process
         {
@@ -202,9 +204,9 @@ impl BitcoinIndexer {
             let block_data = self.get_block_data(&block_hash)?;
             self.send_block_update(&block_data).await?;
         }
-    
+
         self.last_processed_height += blocks_to_process;
-    
+
         // Update finality status after processing new blocks
         let finality_threshold = current_height - FINALITY_CONFIRMATIONS + 1;
         if finality_threshold > 0 {
@@ -213,82 +215,83 @@ impl BitcoinIndexer {
                 finality_threshold
             );
             // Send message to update finality status
-            self.socket_transport.send_update_finality_status(current_height).await?;
+            self.socket_transport
+                .send_update_finality_status(current_height)
+                .await?;
         }
-    
+
         info!(
             "Successfully processed blocks up to height {}",
             self.last_processed_height
         );
-    
+
         Ok(blocks_to_process)
     }
 
     async fn check_for_reorg(&mut self) -> Result<bool> {
         let current_height = self.rpc_client.get_block_count()? as i32;
-        
+
         // Calculate the finality threshold
         let finality_threshold = current_height - FINALITY_CONFIRMATIONS + 1;
-        
+
         // Only check non-finalized blocks for reorgs
         let start_check_height = std::cmp::max(finality_threshold, 0);
-        
+
         // If our last processed block is already considered final, no need to check
         if self.last_processed_height < start_check_height {
             return Ok(false);
         }
-        
+
         // Check each non-final block for hash mismatch
         for height in start_check_height..=self.last_processed_height {
             let chain_hash = self.rpc_client.get_block_hash(height as u64)?;
             let stored_hash = self.socket_transport.get_block_hash(height).await?;
-            
+
             if chain_hash.to_string() != stored_hash {
                 // Reorg detected
                 info!("Reorg detected at height {}", height);
-                
+
                 // Find fork point (but don't go below finality threshold)
                 let fork_point = self.find_fork_point(height, start_check_height).await?;
-                
+
                 info!("Fork point found at height {}", fork_point);
-                
+
                 // Revert to fork point
                 self.socket_transport.send_reorg_event(fork_point).await?;
                 self.last_processed_height = fork_point;
-                
+
                 return Ok(true);
             }
         }
-        
+
         Ok(false)
     }
-    
+
     // Helper method to find the fork point
     async fn find_fork_point(&self, start_height: i32, min_height: i32) -> Result<i32> {
         let mut height = start_height - 1;
-        
+
         while height >= min_height {
             let chain_hash = self.rpc_client.get_block_hash(height as u64)?;
             let stored_hash = self.socket_transport.get_block_hash(height).await?;
-            
+
             if chain_hash.to_string() == stored_hash {
                 return Ok(height);
             }
-            
+
             height -= 1;
         }
-        
+
         // If we reach here, the fork is at or below the finality threshold
         // We'll use the finality threshold as the safe point
         Ok(min_height - 1)
     }
-    
+
     /// Runs the indexer in a loop, processing new blocks as they are added
     pub async fn run(&mut self, poll_interval: Duration) -> Result<()> {
         info!(
             "Starting Bitcoin UTXO indexer from block {} with polling interval of {:?}",
-            self.start_height,
-            poll_interval
+            self.start_height, poll_interval
         );
 
         loop {

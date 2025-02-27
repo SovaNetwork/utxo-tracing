@@ -1,6 +1,6 @@
+use crate::error::{IndexerError, Result};
 use bitcoincore_rpc::bitcoin::{Address, Network, ScriptBuf, Witness};
 use log::error;
-use crate::error::{IndexerError, Result};
 
 /// Determines the type of a Bitcoin script
 pub fn determine_script_type(script: ScriptBuf) -> String {
@@ -23,10 +23,7 @@ pub fn determine_script_type(script: ScriptBuf) -> String {
 }
 
 /// Extracts an address from a Bitcoin script
-pub fn extract_address(
-    script: ScriptBuf,
-    network: Network,
-) -> Result<String> {
+pub fn extract_address(script: ScriptBuf, network: Network) -> Result<String> {
     Address::from_script(&script, network)
         .map(|addr| addr.to_string())
         .map_err(|_| IndexerError::ScriptParsing("Failed to parse address from script".to_string()))
