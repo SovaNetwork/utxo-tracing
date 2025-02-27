@@ -1,4 +1,9 @@
+mod error;
+
+pub use error::TransportError;
+
 use chrono::{DateTime, Utc};
+use error::Result;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -26,37 +31,6 @@ pub struct UtxoUpdate {
     pub spent_at: Option<DateTime<Utc>>,
     pub spent_block: Option<i32>,
 }
-
-#[derive(Debug)]
-pub enum TransportError {
-    IoError(std::io::Error),
-    SerializationError(bincode::Error),
-}
-
-impl From<std::io::Error> for TransportError {
-    fn from(err: std::io::Error) -> Self {
-        TransportError::IoError(err)
-    }
-}
-
-impl From<bincode::Error> for TransportError {
-    fn from(err: bincode::Error) -> Self {
-        TransportError::SerializationError(err)
-    }
-}
-
-impl std::fmt::Display for TransportError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TransportError::IoError(e) => write!(f, "IO error: {}", e),
-            TransportError::SerializationError(e) => write!(f, "Serialization error: {}", e),
-        }
-    }
-}
-
-impl std::error::Error for TransportError {}
-
-pub type Result<T> = std::result::Result<T, TransportError>;
 
 // Socket transport implementation for sender side
 pub struct SocketTransport {
