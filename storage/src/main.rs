@@ -28,7 +28,7 @@ struct Args {
     log_level: String,
 
     /// Datasource type
-    #[arg(long, default_value = "csv")]
+    #[arg(long, default_value = "sqlite")]
     datasource: String,
 
     /// Socket path for receiving updates
