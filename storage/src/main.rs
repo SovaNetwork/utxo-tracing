@@ -58,7 +58,7 @@ async fn main() -> std::io::Result<()> {
             ));
         }
     };
-    
+
     // Initialize datasource
     if let Err(e) = datasource.setup() {
         error!("Failed to setup datasource: {}", e);

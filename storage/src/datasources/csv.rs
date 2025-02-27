@@ -1,12 +1,16 @@
-use csv::Reader;
-use network_shared::UtxoUpdate;
-use parking_lot::RwLock;
 use std::{collections::HashMap, fs, io, path::PathBuf, sync::Arc};
+
+use csv::Reader;
+use parking_lot::RwLock;
 use tracing::error;
 
+use network_shared::UtxoUpdate;
+
 use super::Datasource;
+
 use crate::error::{StorageError, StorageResult};
-use crate::models::utxo::{BlockRow, PendingChanges, UtxoRow};
+use crate::models::block::BlockRow;
+use crate::models::utxo::{PendingChanges, UtxoRow};
 
 /// UtxoCSVDatasource
 /// - utxos: btc_address -> HashMap<utxo_id, UtxoUpdate> (current UTXO set)

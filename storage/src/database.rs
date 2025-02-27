@@ -1,7 +1,9 @@
-use network_shared::{BlockUpdate, UtxoUpdate};
 use std::collections::HashSet;
 use std::sync::Arc;
+
 use tracing::{info, instrument};
+
+use network_shared::{BlockUpdate, UtxoUpdate};
 
 use crate::datasources::Datasource;
 use crate::error::{StorageError, StorageResult};
@@ -28,12 +30,12 @@ impl UtxoDatabase {
     #[instrument(skip(self, block), fields(block_height = block.height))]
     pub async fn process_block(&self, block: BlockUpdate) -> StorageResult<()> {
         let height = block.height;
-        
+
         // Validate parameters
         if height < 0 {
             return Err(StorageError::InvalidBlockHeight(height));
         }
-        
+
         info!(height, "Processing new block");
 
         let mut pending_changes = PendingChanges {
@@ -48,11 +50,11 @@ impl UtxoDatabase {
             if utxo.amount < 0 {
                 return Err(StorageError::InvalidAmount(utxo.amount));
             }
-            
+
             if utxo.address.is_empty() {
                 return Err(StorageError::InvalidAddress("Empty address".to_string()));
             }
-            
+
             // Handle spent UTXOs first
             if utxo.spent_txid.is_some() {
                 pending_changes.utxos_update.push(utxo.clone());
@@ -77,12 +79,13 @@ impl UtxoDatabase {
         if block_height < 0 {
             return Err(StorageError::InvalidBlockHeight(block_height));
         }
-        
+
         if address.is_empty() {
             return Err(StorageError::InvalidAddress("Empty address".to_string()));
         }
-        
-        self.datasource.get_spendable_utxos_at_height(block_height, address)
+
+        self.datasource
+            .get_spendable_utxos_at_height(block_height, address)
     }
 
     pub fn select_utxos_for_amount(
@@ -95,15 +98,15 @@ impl UtxoDatabase {
         if block_height < 0 {
             return Err(StorageError::InvalidBlockHeight(block_height));
         }
-        
+
         if address.is_empty() {
             return Err(StorageError::InvalidAddress("Empty address".to_string()));
         }
-        
+
         if target_amount <= 0 {
             return Err(StorageError::InvalidAmount(target_amount));
         }
-        
+
         let spendable_utxos = self.get_spendable_utxos_at_height(block_height, address)?;
 
         // Nothing to do if there are no UTXOs
@@ -148,12 +151,13 @@ impl UtxoDatabase {
         if block_height < 0 {
             return Err(StorageError::InvalidBlockHeight(block_height));
         }
-        
+
         if address.is_empty() {
             return Err(StorageError::InvalidAddress("Empty address".to_string()));
         }
-        
-        self.datasource.get_utxos_for_block_and_address(block_height, address)
+
+        self.datasource
+            .get_utxos_for_block_and_address(block_height, address)
     }
 
     pub fn get_block_txids(&self, block_height: i32) -> StorageResult<Vec<String>> {
@@ -161,12 +165,12 @@ impl UtxoDatabase {
         if block_height < 0 {
             return Err(StorageError::InvalidBlockHeight(block_height));
         }
-        
+
         let mut txids = HashSet::new();
 
         // Get all UTXOs for this block height from the datasource
         let utxos = self.datasource.get_all_utxos_for_block(block_height)?;
-        
+
         // Collect txids from UTXOs created in this block
         for utxo in utxos {
             txids.insert(utxo.txid.clone());

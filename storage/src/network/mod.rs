@@ -1,5 +1,6 @@
-use crate::database::UtxoDatabase;
 use std::sync::Arc;
+
+use crate::database::UtxoDatabase;
 
 #[derive(Clone)]
 pub struct AppState {

@@ -1,10 +1,12 @@
 pub mod csv;
 pub mod sqlite;
 
+use std::sync::Arc;
+
+use network_shared::UtxoUpdate;
+
 use crate::error::{StorageError, StorageResult};
 use crate::models::utxo::PendingChanges;
-use network_shared::UtxoUpdate;
-use std::sync::Arc;
 
 pub trait Datasource {
     fn setup(&self) -> StorageResult<()>;
@@ -30,11 +32,11 @@ pub fn create_datasource(arg: &str) -> StorageResult<Arc<dyn Datasource + Send +
         "csv" => {
             let datasource = crate::datasources::csv::UtxoCSVDatasource::new();
             Ok(datasource as Arc<dyn Datasource + Send + Sync>)
-        },
+        }
         "sqlite" => {
             let datasource = crate::datasources::sqlite::UtxoSqliteDatasource::new()?;
             Ok(datasource as Arc<dyn Datasource + Send + Sync>)
-        },
+        }
         _ => Err(StorageError::UnexpectedError(format!(
             "Invalid argument for datasource: {}, Use 'csv' or 'sqlite'",
             arg

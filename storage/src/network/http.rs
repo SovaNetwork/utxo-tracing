@@ -85,14 +85,12 @@ async fn get_block_txids(state: web::Data<AppState>, path: web::Path<i32>) -> Ht
         Err(e) => {
             error!("Failed to get txids for block {}: {}", block_height, e);
             match e {
-                StorageError::BlockNotFound(_) => {
-                    HttpResponse::NotFound().json(json!({
-                        "error": format!("{}", e)
-                    }))
-                }
+                StorageError::BlockNotFound(_) => HttpResponse::NotFound().json(json!({
+                    "error": format!("{}", e)
+                })),
                 _ => HttpResponse::InternalServerError().json(json!({
                     "error": format!("Failed to retrieve transaction IDs: {}", e)
-                }))
+                })),
             }
         }
     }
@@ -139,7 +137,10 @@ async fn get_block_address_utxos(
     }
 
     // Get UTXOs
-    match state.db.get_utxos_for_block_and_address(block_height, &address) {
+    match state
+        .db
+        .get_utxos_for_block_and_address(block_height, &address)
+    {
         Ok(utxos) => {
             if utxos.is_empty() {
                 return HttpResponse::NotFound().json(json!({
@@ -155,7 +156,10 @@ async fn get_block_address_utxos(
             HttpResponse::Ok().json(response)
         }
         Err(e) => {
-            error!("Failed to get UTXOs for block {} and address {}: {}", block_height, address, e);
+            error!(
+                "Failed to get UTXOs for block {} and address {}: {}",
+                block_height, address, e
+            );
             match e {
                 StorageError::BlockNotFound(_) | StorageError::InvalidAddress(_) => {
                     HttpResponse::NotFound().json(json!({
@@ -164,7 +168,7 @@ async fn get_block_address_utxos(
                 }
                 _ => HttpResponse::InternalServerError().json(json!({
                     "error": format!("Failed to retrieve UTXOs: {}", e)
-                }))
+                })),
             }
         }
     }
@@ -211,7 +215,10 @@ async fn get_spendable_utxos(
     }
 
     // Get UTXOs with proper error handling
-    match state.db.get_spendable_utxos_at_height(block_height, &address) {
+    match state
+        .db
+        .get_spendable_utxos_at_height(block_height, &address)
+    {
         Ok(spendable_utxos) => {
             let total_amount: i64 = spendable_utxos.iter().map(|utxo| utxo.amount).sum();
 
@@ -285,7 +292,10 @@ async fn select_utxos(
     }
 
     // Select UTXOs
-    match state.db.select_utxos_for_amount(block_height, &address, target_amount) {
+    match state
+        .db
+        .select_utxos_for_amount(block_height, &address, target_amount)
+    {
         Ok(selected_utxos) => {
             let total_amount: i64 = selected_utxos.iter().map(|utxo| utxo.amount).sum();
 
@@ -299,22 +309,21 @@ async fn select_utxos(
 
             HttpResponse::Ok().json(response)
         }
-        Err(e) => {
-            match e {
-                StorageError::InsufficientFunds { available, required } => {
-                    HttpResponse::NotFound().json(json!({
-                        "error": "Insufficient funds to meet target amount",
-                        "available_amount": available,
-                        "target_amount": required
-                    }))
-                }
-                _ => {
-                    error!("Failed to select UTXOs: {}", e);
-                    HttpResponse::InternalServerError().json(json!({
-                        "error": format!("Failed to select UTXOs: {}", e)
-                    }))
-                }
+        Err(e) => match e {
+            StorageError::InsufficientFunds {
+                available,
+                required,
+            } => HttpResponse::NotFound().json(json!({
+                "error": "Insufficient funds to meet target amount",
+                "available_amount": available,
+                "target_amount": required
+            })),
+            _ => {
+                error!("Failed to select UTXOs: {}", e);
+                HttpResponse::InternalServerError().json(json!({
+                    "error": format!("Failed to select UTXOs: {}", e)
+                }))
             }
-        }
+        },
     }
 }

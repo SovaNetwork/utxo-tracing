@@ -1,12 +1,15 @@
+use std::sync::Arc;
+
 use chrono::{DateTime, Utc};
-use network_shared::UtxoUpdate;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::params;
 use rusqlite_migration::{Migrations, M};
-use std::sync::Arc;
+
+use network_shared::UtxoUpdate;
 
 use super::Datasource;
+
 use crate::error::{StorageError, StorageResult};
 use crate::models::utxo::PendingChanges;
 
@@ -20,11 +23,11 @@ impl UtxoSqliteDatasource {
             .map_err(|e| StorageError::IoError(e.to_string()))?
             .join("data");
 
-        std::fs::create_dir_all(&data_dir)
-            .map_err(|e| StorageError::IoError(e.to_string()))?;
-            
+        std::fs::create_dir_all(&data_dir).map_err(|e| StorageError::IoError(e.to_string()))?;
+
         let db_dir = data_dir.join("utxo.db");
-        let db_path = db_dir.to_str()
+        let db_path = db_dir
+            .to_str()
             .ok_or_else(|| StorageError::UnexpectedError("Invalid database path".to_string()))?;
 
         let manager = SqliteConnectionManager::file(db_path);
@@ -33,7 +36,7 @@ impl UtxoSqliteDatasource {
 
         Ok(Arc::new(Self { conn }))
     }
-    
+
     fn run_migrations(&self) -> StorageResult<()> {
         let migrations = Migrations::new(vec![M::up(
             "CREATE TABLE IF NOT EXISTS utxo (
@@ -55,10 +58,13 @@ impl UtxoSqliteDatasource {
             )",
         )]);
 
-        let mut conn = self.conn.get()
+        let mut conn = self
+            .conn
+            .get()
             .map_err(|e| StorageError::DatabaseConnectionFailed(e.to_string()))?;
 
-        migrations.to_latest(&mut conn)
+        migrations
+            .to_latest(&mut conn)
             .map_err(|e| StorageError::MigrationFailed(e.to_string()))?;
 
         Ok(())
@@ -69,7 +75,7 @@ impl UtxoSqliteDatasource {
         if utxo.amount < 0 {
             return Err(StorageError::InvalidAmount(utxo.amount));
         }
-        
+
         if utxo.address.is_empty() {
             return Err(StorageError::InvalidAddress("Empty address".to_string()));
         }
@@ -98,7 +104,8 @@ impl UtxoSqliteDatasource {
                 utxo.spent_at.map(|dt| dt.to_rfc3339()),
                 utxo.spent_block,
             ],
-        ).map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
+        )
+        .map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
 
         Ok(())
     }
@@ -114,7 +121,9 @@ impl Datasource for UtxoSqliteDatasource {
     }
 
     fn get_latest_block(&self) -> StorageResult<i32> {
-        let conn = self.conn.get()
+        let conn = self
+            .conn
+            .get()
             .map_err(|e| StorageError::DatabaseConnectionFailed(e.to_string()))?;
 
         let query = "
@@ -136,21 +145,25 @@ impl Datasource for UtxoSqliteDatasource {
         if changes.height < 0 {
             return Err(StorageError::InvalidBlockHeight(changes.height));
         }
-        
-        let mut conn = self.conn.get()
+
+        let mut conn = self
+            .conn
+            .get()
             .map_err(|e| StorageError::DatabaseConnectionFailed(e.to_string()))?;
 
         // Start a transaction
-        let tx = conn.transaction()
-            .map_err(|e| StorageError::DatabaseQueryFailed(format!("Failed to start transaction: {}", e)))?;
+        let tx = conn.transaction().map_err(|e| {
+            StorageError::DatabaseQueryFailed(format!("Failed to start transaction: {}", e))
+        })?;
 
         // Upsert UTXOs from utxos_update
         for utxo in &changes.utxos_update {
             if let Err(e) = UtxoSqliteDatasource::upsert_utxo_in_tx(&tx, utxo) {
                 let _ = tx.rollback(); // Try to rollback, but we'll return the original error
-                return Err(StorageError::DatabaseQueryFailed(
-                    format!("Failed to upsert UTXO {}: {}", utxo.id, e)
-                ));
+                return Err(StorageError::DatabaseQueryFailed(format!(
+                    "Failed to upsert UTXO {}: {}",
+                    utxo.id, e
+                )));
             }
         }
 
@@ -158,77 +171,97 @@ impl Datasource for UtxoSqliteDatasource {
         for utxo in &changes.utxos_insert {
             if let Err(e) = UtxoSqliteDatasource::upsert_utxo_in_tx(&tx, utxo) {
                 let _ = tx.rollback(); // Try to rollback, but we'll return the original error
-                return Err(StorageError::DatabaseQueryFailed(
-                    format!("Failed to upsert UTXO {}: {}", utxo.id, e)
-                ));
+                return Err(StorageError::DatabaseQueryFailed(format!(
+                    "Failed to upsert UTXO {}: {}",
+                    utxo.id, e
+                )));
             }
         }
 
         // Commit the transaction
-        tx.commit().map_err(|e| StorageError::DatabaseQueryFailed(
-            format!("Failed to commit transaction: {}", e)
-        ))?;
+        tx.commit().map_err(|e| {
+            StorageError::DatabaseQueryFailed(format!("Failed to commit transaction: {}", e))
+        })?;
 
         Ok(())
     }
 
-    fn get_spendable_utxos_at_height(&self, block_height: i32, address: &str) -> StorageResult<Vec<UtxoUpdate>> {
+    fn get_spendable_utxos_at_height(
+        &self,
+        block_height: i32,
+        address: &str,
+    ) -> StorageResult<Vec<UtxoUpdate>> {
         // Validate parameters
         if block_height < 0 {
             return Err(StorageError::InvalidBlockHeight(block_height));
         }
-        
+
         if address.is_empty() {
             return Err(StorageError::InvalidAddress("Empty address".to_string()));
         }
 
-        let conn = self.conn.get()
+        let conn = self
+            .conn
+            .get()
             .map_err(|e| StorageError::DatabaseConnectionFailed(e.to_string()))?;
 
-        let mut stmt = conn.prepare(
-        "SELECT 
+        let mut stmt = conn
+            .prepare(
+                "SELECT 
             id, address, public_key, txid, vout, amount, script_pub_key, 
             script_type, created_at, block_height, spent_txid, spent_at, spent_block
             FROM utxo
             WHERE block_height <= ?1 
             AND (spent_block IS NULL OR spent_block > ?1)
             AND address = ?2",
-        ).map_err(|e| StorageError::DatabaseQueryFailed(format!("Failed to prepare statement: {}", e)))?;
+            )
+            .map_err(|e| {
+                StorageError::DatabaseQueryFailed(format!("Failed to prepare statement: {}", e))
+            })?;
 
         let mut results = Vec::new();
 
         // Use params! to ensure the types of block_height and address match the placeholders
-        let rows = stmt.query_map(params![block_height, address], |row| {
-            let created_at = row.get::<_, String>(8)?;
-            let created_at_parsed = DateTime::parse_from_rfc3339(&created_at)
-                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?
-                .with_timezone(&Utc);
+        let rows = stmt
+            .query_map(params![block_height, address], |row| {
+                let created_at = row.get::<_, String>(8)?;
+                let created_at_parsed = DateTime::parse_from_rfc3339(&created_at)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?
+                    .with_timezone(&Utc);
 
-            Ok(UtxoUpdate {
-                id: row.get(0)?,
-                address: row.get(1)?,
-                public_key: row.get(2)?,
-                txid: row.get(3)?,
-                vout: row.get(4)?,
-                amount: row.get(5)?,
-                script_pub_key: row.get(6)?,
-                script_type: row.get(7)?,
-                created_at: created_at_parsed,
-                block_height: row.get(9)?,
-                spent_txid: row.get(10)?,
-                spent_at: row.get::<_, Option<String>>(11)?.map(|s| {
-                    DateTime::parse_from_rfc3339(&s)
-                        .unwrap()
-                        .with_timezone(&Utc)
-                }),
-                spent_block: row.get(12)?,
+                Ok(UtxoUpdate {
+                    id: row.get(0)?,
+                    address: row.get(1)?,
+                    public_key: row.get(2)?,
+                    txid: row.get(3)?,
+                    vout: row.get(4)?,
+                    amount: row.get(5)?,
+                    script_pub_key: row.get(6)?,
+                    script_type: row.get(7)?,
+                    created_at: created_at_parsed,
+                    block_height: row.get(9)?,
+                    spent_txid: row.get(10)?,
+                    spent_at: row.get::<_, Option<String>>(11)?.map(|s| {
+                        DateTime::parse_from_rfc3339(&s)
+                            .unwrap()
+                            .with_timezone(&Utc)
+                    }),
+                    spent_block: row.get(12)?,
+                })
             })
-        }).map_err(|e| StorageError::DatabaseQueryFailed(format!("Failed to query rows: {}", e)))?;
+            .map_err(|e| {
+                StorageError::DatabaseQueryFailed(format!("Failed to query rows: {}", e))
+            })?;
 
         for row in rows {
             match row {
                 Ok(utxo) => results.push(utxo),
-                Err(e) => return Err(StorageError::DatabaseQueryFailed(format!("Failed to process row: {}", e))),
+                Err(e) => {
+                    return Err(StorageError::DatabaseQueryFailed(format!(
+                        "Failed to process row: {}",
+                        e
+                    )))
+                }
             }
         }
 
@@ -244,14 +277,16 @@ impl Datasource for UtxoSqliteDatasource {
         if block_height < 0 {
             return Err(StorageError::InvalidBlockHeight(block_height));
         }
-        
+
         if address.is_empty() {
             return Err(StorageError::InvalidAddress("Empty address".to_string()));
         }
 
-        let conn = self.conn.get()
+        let conn = self
+            .conn
+            .get()
             .map_err(|e| StorageError::DatabaseConnectionFailed(e.to_string()))?;
-            
+
         let query = "
             SELECT 
                 id, address, public_key, txid, vout, amount, script_pub_key, 
@@ -261,43 +296,53 @@ impl Datasource for UtxoSqliteDatasource {
         ";
 
         // Prepare the statement
-        let mut stmt = conn.prepare(query)
-            .map_err(|e| StorageError::DatabaseQueryFailed(format!("Failed to prepare statement: {}", e)))?;
+        let mut stmt = conn.prepare(query).map_err(|e| {
+            StorageError::DatabaseQueryFailed(format!("Failed to prepare statement: {}", e))
+        })?;
 
         // Execute the query and map results to UtxoUpdate
-        let rows = stmt.query_map(params![block_height, address], |row| {
-            let created_at = row.get::<_, String>(8)?;
-            let created_at_parsed = DateTime::parse_from_rfc3339(&created_at)
-                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?
-                .with_timezone(&Utc);
+        let rows = stmt
+            .query_map(params![block_height, address], |row| {
+                let created_at = row.get::<_, String>(8)?;
+                let created_at_parsed = DateTime::parse_from_rfc3339(&created_at)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?
+                    .with_timezone(&Utc);
 
-            Ok(UtxoUpdate {
-                id: row.get(0)?,
-                address: row.get(1)?,
-                public_key: row.get(2)?,
-                txid: row.get(3)?,
-                vout: row.get(4)?,
-                amount: row.get(5)?,
-                script_pub_key: row.get(6)?,
-                script_type: row.get(7)?,
-                created_at: created_at_parsed,
-                block_height: row.get(9)?,
-                spent_txid: row.get(10)?,
-                spent_at: row.get::<_, Option<String>>(11)?.map(|s| {
-                    DateTime::parse_from_rfc3339(&s)
-                        .unwrap()
-                        .with_timezone(&Utc)
-                }),
-                spent_block: row.get(12)?,
+                Ok(UtxoUpdate {
+                    id: row.get(0)?,
+                    address: row.get(1)?,
+                    public_key: row.get(2)?,
+                    txid: row.get(3)?,
+                    vout: row.get(4)?,
+                    amount: row.get(5)?,
+                    script_pub_key: row.get(6)?,
+                    script_type: row.get(7)?,
+                    created_at: created_at_parsed,
+                    block_height: row.get(9)?,
+                    spent_txid: row.get(10)?,
+                    spent_at: row.get::<_, Option<String>>(11)?.map(|s| {
+                        DateTime::parse_from_rfc3339(&s)
+                            .unwrap()
+                            .with_timezone(&Utc)
+                    }),
+                    spent_block: row.get(12)?,
+                })
             })
-        }).map_err(|e| StorageError::DatabaseQueryFailed(format!("Failed to query rows: {}", e)))?;
+            .map_err(|e| {
+                StorageError::DatabaseQueryFailed(format!("Failed to query rows: {}", e))
+            })?;
 
         // Collect the results into a vector
         let mut results = Vec::new();
         for row in rows {
             match row {
                 Ok(utxo) => results.push(utxo),
-                Err(e) => return Err(StorageError::DatabaseQueryFailed(format!("Failed to process row: {}", e))),
+                Err(e) => {
+                    return Err(StorageError::DatabaseQueryFailed(format!(
+                        "Failed to process row: {}",
+                        e
+                    )))
+                }
             }
         }
 
@@ -310,9 +355,11 @@ impl Datasource for UtxoSqliteDatasource {
             return Err(StorageError::InvalidBlockHeight(block_height));
         }
 
-        let conn = self.conn.get()
+        let conn = self
+            .conn
+            .get()
             .map_err(|e| StorageError::DatabaseConnectionFailed(e.to_string()))?;
-            
+
         let query = "
             SELECT 
                 id, address, public_key, txid, vout, amount, script_pub_key, 
@@ -321,41 +368,51 @@ impl Datasource for UtxoSqliteDatasource {
             WHERE block_height = ?1;
         ";
 
-        let mut stmt = conn.prepare(query)
-            .map_err(|e| StorageError::DatabaseQueryFailed(format!("Failed to prepare statement: {}", e)))?;
+        let mut stmt = conn.prepare(query).map_err(|e| {
+            StorageError::DatabaseQueryFailed(format!("Failed to prepare statement: {}", e))
+        })?;
 
-        let rows = stmt.query_map([block_height], |row| {
-            let created_at = row.get::<_, String>(8)?;
-            let created_at_parsed = DateTime::parse_from_rfc3339(&created_at)
-                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?
-                .with_timezone(&Utc);
+        let rows = stmt
+            .query_map([block_height], |row| {
+                let created_at = row.get::<_, String>(8)?;
+                let created_at_parsed = DateTime::parse_from_rfc3339(&created_at)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?
+                    .with_timezone(&Utc);
 
-            Ok(UtxoUpdate {
-                id: row.get(0)?,
-                address: row.get(1)?,
-                public_key: row.get(2)?,
-                txid: row.get(3)?,
-                vout: row.get(4)?,
-                amount: row.get(5)?,
-                script_pub_key: row.get(6)?,
-                script_type: row.get(7)?,
-                created_at: created_at_parsed,
-                block_height: row.get(9)?,
-                spent_txid: row.get(10)?,
-                spent_at: row.get::<_, Option<String>>(11)?.map(|s| {
-                    DateTime::parse_from_rfc3339(&s)
-                        .unwrap()
-                        .with_timezone(&Utc)
-                }),
-                spent_block: row.get(12)?,
+                Ok(UtxoUpdate {
+                    id: row.get(0)?,
+                    address: row.get(1)?,
+                    public_key: row.get(2)?,
+                    txid: row.get(3)?,
+                    vout: row.get(4)?,
+                    amount: row.get(5)?,
+                    script_pub_key: row.get(6)?,
+                    script_type: row.get(7)?,
+                    created_at: created_at_parsed,
+                    block_height: row.get(9)?,
+                    spent_txid: row.get(10)?,
+                    spent_at: row.get::<_, Option<String>>(11)?.map(|s| {
+                        DateTime::parse_from_rfc3339(&s)
+                            .unwrap()
+                            .with_timezone(&Utc)
+                    }),
+                    spent_block: row.get(12)?,
+                })
             })
-        }).map_err(|e| StorageError::DatabaseQueryFailed(format!("Failed to query rows: {}", e)))?;
+            .map_err(|e| {
+                StorageError::DatabaseQueryFailed(format!("Failed to query rows: {}", e))
+            })?;
 
         let mut results = Vec::new();
         for row in rows {
             match row {
                 Ok(utxo) => results.push(utxo),
-                Err(e) => return Err(StorageError::DatabaseQueryFailed(format!("Failed to process row: {}", e))),
+                Err(e) => {
+                    return Err(StorageError::DatabaseQueryFailed(format!(
+                        "Failed to process row: {}",
+                        e
+                    )))
+                }
             }
         }
 
