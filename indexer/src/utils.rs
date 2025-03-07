@@ -1,6 +1,6 @@
-use crate::error::{IndexerError, Result};
+use crate::error::Result;
 use bitcoincore_rpc::bitcoin::{Address, Network, ScriptBuf, Witness};
-use log::error;
+use log::warn;
 
 /// Determines the type of a Bitcoin script
 pub fn determine_script_type(script: ScriptBuf) -> String {
@@ -16,17 +16,27 @@ pub fn determine_script_type(script: ScriptBuf) -> String {
         "OP_RETURN".to_string()
     } else if script.is_witness_program() {
         "WITNESS".to_string()
+    } else if script.is_p2pk() {
+        "P2PK".to_string()
     } else {
-        error!("Unknown script type: {}", hex::encode(script.as_bytes()));
-        "UNKNOWN".to_string()
+        warn!(
+            "Nonstandard script type: {}",
+            hex::encode(script.as_bytes())
+        );
+        "NONSTANDARD".to_string()
     }
 }
 
 /// Extracts an address from a Bitcoin script
 pub fn extract_address(script: ScriptBuf, network: Network) -> Result<String> {
-    Address::from_script(&script, network)
-        .map(|addr| addr.to_string())
-        .map_err(|_| IndexerError::ScriptParsing("Failed to parse address from script".to_string()))
+    match Address::from_script(&script, network) {
+        Ok(addr) => Ok(addr.to_string()),
+        Err(_) => {
+            // For non-standard scripts, use a representation based on the script hash
+            let script_hash = script.script_hash();
+            Ok(format!("nonstandard:{}", script_hash))
+        }
+    }
 }
 
 /// Extracts a public key from a Bitcoin witness

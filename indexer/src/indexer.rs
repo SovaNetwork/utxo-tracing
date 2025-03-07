@@ -3,7 +3,7 @@ use std::time::Duration;
 use bitcoincore_rpc::bitcoin::{Block, BlockHash, Network};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use chrono::{DateTime, Utc};
-use log::{error, info};
+use log::{debug, error, info, warn};
 use network_shared::{BlockUpdate, SocketTransport, UtxoUpdate, FINALITY_CONFIRMATIONS};
 use tokio;
 
@@ -93,9 +93,9 @@ impl BitcoinIndexer {
             for input in tx.input.iter() {
                 if input.previous_output.is_null() {
                     if !is_coinbase {
-                        error!("Found null previous output in non-coinbase transaction");
+                        warn!("Found null previous output in non-coinbase transaction");
                     } else {
-                        info!("Skipping coinbase transaction input");
+                        debug!("Skipping coinbase transaction input");
                     }
                     continue;
                 }
@@ -191,14 +191,20 @@ impl BitcoinIndexer {
             return Ok(0);
         }
 
-        info!(
-            "Processing {} new blocks from height {}",
+        // Log at the start of processing
+        debug!(
+            "Processing {} new blocks from height {} to {}",
             blocks_to_process,
-            self.last_processed_height + 1
+            self.last_processed_height + 1,
+            self.last_processed_height + blocks_to_process
         );
 
-        for height in
-            self.last_processed_height + 1..=self.last_processed_height + blocks_to_process
+        let start_time = std::time::Instant::now();
+        let log_interval = std::cmp::max(blocks_to_process / 10, 1) as usize; // Log about 10 times during processing
+
+        for (i, height) in (self.last_processed_height + 1
+            ..=self.last_processed_height + blocks_to_process)
+            .enumerate()
         {
             let block_hash = self.rpc_client.get_block_hash(height as u64)?;
             let block_data = self.get_block_data(&block_hash)?;
@@ -210,7 +216,7 @@ impl BitcoinIndexer {
         // Update finality status after processing new blocks
         let finality_threshold = current_height - FINALITY_CONFIRMATIONS + 1;
         if finality_threshold > 0 {
-            info!(
+            debug!(
                 "Updating finality status for blocks with threshold {}",
                 finality_threshold
             );
@@ -220,14 +226,16 @@ impl BitcoinIndexer {
                 .await?;
         }
 
+        let total_elapsed = start_time.elapsed();
+        let total_speed = blocks_to_process as f64 / total_elapsed.as_secs_f64();
+
         info!(
-            "Successfully processed blocks up to height {}",
-            self.last_processed_height
+            "Successfully processed {} blocks. Current height: {}/{}. Speed: {:.2} blocks/sec",
+            blocks_to_process, self.last_processed_height, current_height, total_speed
         );
 
         Ok(blocks_to_process)
     }
-
     async fn check_for_reorg(&mut self) -> Result<bool> {
         let current_height = self.rpc_client.get_block_count()? as i32;
 

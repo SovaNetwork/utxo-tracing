@@ -65,7 +65,10 @@ impl Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    env_logger::init();
+    let env = env_logger::Env::default().filter_or("RUST_LOG", "warn"); // Only show warnings and errors
+    env_logger::Builder::from_env(env)
+        .format_timestamp_millis()
+        .init();
 
     let args = Args::parse();
 

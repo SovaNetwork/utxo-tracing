@@ -41,9 +41,14 @@ async fn main() -> std::io::Result<()> {
     let args = Args::parse();
 
     // Setup tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(&args.log_level)
-        .init();
+    let filter =
+        if args.log_level == "info" || args.log_level == "debug" || args.log_level == "trace" {
+            args.log_level.clone()
+        } else {
+            "warn".to_string() // Only show warnings and errors by default
+        };
+
+    tracing_subscriber::fmt().with_env_filter(&filter).init();
 
     info!("Starting UTXO tracking service");
 

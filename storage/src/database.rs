@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use tracing::{info, instrument};
+use tracing::{debug, info, instrument};
 
 use network_shared::{BlockUpdate, UtxoUpdate, FINALITY_CONFIRMATIONS};
 
@@ -37,7 +37,7 @@ impl UtxoDatabase {
             return Err(StorageError::InvalidBlockHeight(height));
         }
 
-        info!(height, "Processing new block");
+        debug!(height, "Processing new block");
 
         let mut pending_changes = PendingChanges {
             height,
@@ -67,7 +67,7 @@ impl UtxoDatabase {
 
         self.datasource.process_block_utxos(&pending_changes)?;
 
-        info!(height, "Block processing completed");
+        debug!(height, "Block processing completed");
         Ok(())
     }
 
@@ -194,7 +194,7 @@ impl UtxoDatabase {
             // Mark all blocks at or below threshold as final
             self.datasource.mark_blocks_as_final(finality_threshold)?;
 
-            info!(
+            debug!(
                 threshold = finality_threshold,
                 "Updated finality status for blocks"
             );

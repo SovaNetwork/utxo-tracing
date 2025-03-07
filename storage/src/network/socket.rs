@@ -2,7 +2,7 @@ use std::{fs, io, path::Path, sync::Arc};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::database::UtxoDatabase;
 
@@ -73,7 +73,7 @@ async fn handle_socket_connection(stream: UnixStream, db: Arc<UtxoDatabase>) -> 
 
     match message {
         network_shared::NetworkMessage::BlockUpdate(update) => {
-            info!(height = update.height, "Received block update via socket");
+            debug!(height = update.height, "Received block update via socket");
 
             // Store block information
             if let Err(e) = db.store_block(update.height, &update.hash, update.timestamp) {
@@ -115,7 +115,7 @@ async fn handle_socket_connection(stream: UnixStream, db: Arc<UtxoDatabase>) -> 
             stream.write_all(&response_data).await?;
         }
         network_shared::NetworkMessage::UpdateFinalityStatus { current_height } => {
-            info!(
+            debug!(
                 "Received finality status update request for height {}",
                 current_height
             );
