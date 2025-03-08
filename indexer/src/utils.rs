@@ -44,5 +44,5 @@ pub fn extract_public_key(witness: &Witness) -> Option<String> {
     if witness.is_empty() {
         return None;
     }
-    witness.iter().nth(1).map(|pk| hex::encode(pk))
+    witness.iter().nth(1).map(hex::encode)
 }

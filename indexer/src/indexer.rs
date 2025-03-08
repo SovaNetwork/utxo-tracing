@@ -5,7 +5,6 @@ use bitcoincore_rpc::{Auth, Client, RpcApi};
 use chrono::{DateTime, Utc};
 use log::{debug, error, info};
 use network_shared::{BlockUpdate, SocketTransport, UtxoUpdate, FINALITY_CONFIRMATIONS};
-use tokio;
 
 use crate::error::{IndexerError, Result};
 use crate::utils::{determine_script_type, extract_address, extract_public_key};
@@ -237,9 +236,8 @@ impl BitcoinIndexer {
         // get start time for tracking performance
         let start_time = std::time::Instant::now();
 
-        for (_i, height) in (self.last_processed_height + 1
-            ..=self.last_processed_height + blocks_to_process)
-            .enumerate()
+        for height in
+            self.last_processed_height + 1..=self.last_processed_height + blocks_to_process
         {
             let block_hash = self.rpc_client.get_block_hash(height as u64)?;
             let block_data = self.get_block_data(&block_hash)?;

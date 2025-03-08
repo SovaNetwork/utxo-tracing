@@ -238,8 +238,8 @@ impl Datasource for UtxoCSVDatasource {
             if let Some(address_utxos) = utxos.get_mut(&utxo.address) {
                 if let Some(existing_utxo) = address_utxos.get_mut(&utxo_id) {
                     existing_utxo.spent_txid = utxo.spent_txid.clone();
-                    existing_utxo.spent_at = utxo.spent_at.clone();
-                    existing_utxo.spent_block = utxo.spent_block.clone();
+                    existing_utxo.spent_at = utxo.spent_at;
+                    existing_utxo.spent_block = utxo.spent_block;
                 }
             }
         }
@@ -307,7 +307,7 @@ impl Datasource for UtxoCSVDatasource {
             .read()
             .get(&block_height)
             .and_then(|block_data| block_data.get(address))
-            .map(|utxos| utxos.clone())
+            .cloned()
             .unwrap_or_default();
 
         Ok(result)
