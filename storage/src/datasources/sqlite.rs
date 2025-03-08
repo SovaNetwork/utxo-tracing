@@ -584,6 +584,11 @@ impl Datasource for UtxoSqliteDatasource {
     }
 
     fn is_address_whitelisted(&self, address: &str) -> StorageResult<bool> {
+        if address.is_empty() {
+            return Err(StorageError::InvalidAddress("Empty address".to_string()));
+        }
+
+        // For all other addresses, check the whitelist table
         let conn = self
             .conn
             .get()

@@ -430,17 +430,10 @@ impl Datasource for UtxoCSVDatasource {
             return Err(StorageError::InvalidAddress("Empty address".to_string()));
         }
 
-        // Always whitelist coinbase
-        if address == "coinbase" {
-            return Ok(true);
-        }
-
-        // If no addresses are whitelisted, consider all addresses whitelisted
+        // If whitelist is empty, don't index anything (except coinbase which is handled above)
         let whitelist = self.whitelisted_addresses.read();
-        if whitelist.is_empty() {
-            return Ok(true);
-        }
 
+        // Check if address is in whitelist
         Ok(whitelist.contains_key(address))
     }
 
