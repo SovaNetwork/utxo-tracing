@@ -3,7 +3,7 @@ use std::time::Duration;
 use bitcoincore_rpc::bitcoin::{Block, BlockHash, Network};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use chrono::{DateTime, Utc};
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use network_shared::{BlockUpdate, SocketTransport, UtxoUpdate, FINALITY_CONFIRMATIONS};
 use tokio;
 
@@ -57,6 +57,25 @@ impl BitcoinIndexer {
         })
     }
 
+    // Checks if an address is whitelisted
+    async fn is_address_whitelisted(&self, address: &str) -> bool {
+        // Always include coinbase transactions
+        if address == "coinbase" {
+            return true;
+        }
+
+        // Query the storage service to check whitelist
+        match self.socket_transport.check_whitelist(address).await {
+            Ok(is_whitelisted) => is_whitelisted,
+            Err(e) => {
+                error!("Failed to check whitelist status: {}", e);
+                // Default to true if we can't check the whitelist
+                // This is safer than missing transactions
+                true
+            }
+        }
+    }
+
     /// Gets block data for a given block hash and process transactions
     fn get_block_data(&self, block_hash: &BlockHash) -> Result<BlockUpdate> {
         let block = self.rpc_client.get_block(block_hash)?;
@@ -93,7 +112,7 @@ impl BitcoinIndexer {
             for input in tx.input.iter() {
                 if input.previous_output.is_null() {
                     if !is_coinbase {
-                        warn!("Found null previous output in non-coinbase transaction");
+                        error!("Found null previous output in non-coinbase transaction");
                     } else {
                         debug!("Skipping coinbase transaction input");
                     }
@@ -105,12 +124,21 @@ impl BitcoinIndexer {
                     .get_raw_transaction(&input.previous_output.txid, None)?;
                 let prev_output = &prev_tx.output[input.previous_output.vout as usize];
 
+                let address = extract_address(prev_output.script_pubkey.clone(), self.network)?;
+
+                // Skip if address is not whitelisted (add tokio block to make this async)
+                if !tokio::runtime::Handle::current()
+                    .block_on(self.is_address_whitelisted(&address))
+                {
+                    continue;
+                }
+
                 let spent_utxo = UtxoUpdate {
                     id: format!(
                         "{}:{}",
                         input.previous_output.txid, input.previous_output.vout
                     ),
-                    address: extract_address(prev_output.script_pubkey.clone(), self.network)?,
+                    address,
                     public_key: extract_public_key(&input.witness),
                     txid: input.previous_output.txid.to_string(),
                     vout: input.previous_output.vout as i32,
@@ -139,6 +167,13 @@ impl BitcoinIndexer {
                         determine_script_type(output.script_pubkey.clone()),
                     )
                 };
+
+                // Skip if address is not whitelisted
+                if !tokio::runtime::Handle::current()
+                    .block_on(self.is_address_whitelisted(&address))
+                {
+                    continue;
+                }
 
                 let utxo = UtxoUpdate {
                     id: format!("{}:{}", tx.txid(), vout),
@@ -199,10 +234,10 @@ impl BitcoinIndexer {
             self.last_processed_height + blocks_to_process
         );
 
+        // get start time for tracking performance
         let start_time = std::time::Instant::now();
-        let log_interval = std::cmp::max(blocks_to_process / 10, 1) as usize; // Log about 10 times during processing
 
-        for (i, height) in (self.last_processed_height + 1
+        for (_i, height) in (self.last_processed_height + 1
             ..=self.last_processed_height + blocks_to_process)
             .enumerate()
         {

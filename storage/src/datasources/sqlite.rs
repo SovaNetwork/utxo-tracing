@@ -12,6 +12,7 @@ use super::Datasource;
 
 use crate::error::{StorageError, StorageResult};
 use crate::models::utxo::PendingChanges;
+use crate::models::whitelist::WhitelistedAddress;
 
 pub struct UtxoSqliteDatasource {
     conn: Pool<SqliteConnectionManager>,
@@ -65,6 +66,12 @@ impl UtxoSqliteDatasource {
                     spent_at TEXT,
                     spent_block INTEGER,
                     UNIQUE(txid, vout)
+                )",
+            ),
+            M::up(
+                "CREATE TABLE IF NOT EXISTS whitelisted_addresses (
+                    address TEXT NOT NULL PRIMARY KEY,
+                    added_at TEXT NOT NULL
                 )",
             ),
         ]);
@@ -223,11 +230,11 @@ impl Datasource for UtxoSqliteDatasource {
 
         let mut stmt = conn
             .prepare(
-                "SELECT 
-            id, address, public_key, txid, vout, amount, script_pub_key, 
+                "SELECT
+            id, address, public_key, txid, vout, amount, script_pub_key,
             script_type, created_at, block_height, spent_txid, spent_at, spent_block
             FROM utxo
-            WHERE block_height <= ?1 
+            WHERE block_height <= ?1
             AND (spent_block IS NULL OR spent_block > ?1)
             AND address = ?2",
             )
@@ -541,10 +548,10 @@ impl Datasource for UtxoSqliteDatasource {
 
         // 1. Unspend UTXOs that were spent after this height
         tx.execute(
-            "UPDATE utxo SET 
-                spent_txid = NULL, 
-                spent_at = NULL, 
-                spent_block = NULL 
+            "UPDATE utxo SET
+                spent_txid = NULL,
+                spent_at = NULL,
+                spent_block = NULL
              WHERE spent_block > ?",
             params![height],
         )
@@ -559,5 +566,69 @@ impl Datasource for UtxoSqliteDatasource {
         })?;
 
         Ok(())
+    }
+
+    fn add_whitelisted_address(&self, address: &str) -> StorageResult<()> {
+        let conn = self
+            .conn
+            .get()
+            .map_err(|e| StorageError::DatabaseConnectionFailed(e.to_string()))?;
+
+        conn.execute(
+            "INSERT OR REPLACE INTO whitelisted_addresses (address, added_at) VALUES (?1, ?2)",
+            params![address, chrono::Utc::now().to_rfc3339()],
+        )
+        .map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
+
+        Ok(())
+    }
+
+    fn is_address_whitelisted(&self, address: &str) -> StorageResult<bool> {
+        let conn = self
+            .conn
+            .get()
+            .map_err(|e| StorageError::DatabaseConnectionFailed(e.to_string()))?;
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM whitelisted_addresses WHERE address = ?1",
+                params![address],
+                |row| row.get(0),
+            )
+            .map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
+
+        Ok(count > 0)
+    }
+
+    fn get_whitelisted_addresses(&self) -> StorageResult<Vec<WhitelistedAddress>> {
+        let conn = self
+            .conn
+            .get()
+            .map_err(|e| StorageError::DatabaseConnectionFailed(e.to_string()))?;
+
+        let mut stmt = conn
+            .prepare("SELECT address, added_at FROM whitelisted_addresses ORDER BY added_at DESC")
+            .map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                let added_at_str: String = row.get(1)?;
+                let added_at = chrono::DateTime::parse_from_rfc3339(&added_at_str)
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?
+                    .with_timezone(&chrono::Utc);
+
+                Ok(WhitelistedAddress {
+                    address: row.get(0)?,
+                    added_at,
+                })
+            })
+            .map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row.map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?);
+        }
+
+        Ok(result)
     }
 }

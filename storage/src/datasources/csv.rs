@@ -13,11 +13,17 @@ use super::Datasource;
 use crate::error::{StorageError, StorageResult};
 use crate::models::block::BlockRow;
 use crate::models::utxo::{PendingChanges, UtxoRow};
+use crate::models::whitelist::WhitelistedAddress;
 
 /// UtxoCSVDatasource
 /// - utxos: btc_address -> HashMap<utxo_id, UtxoUpdate> (current UTXO set)
 /// - blocks: block_height -> HashMap<btc_address, Vec<UtxoUpdate>> (UTXOs created/spent in this block)
 /// - latest_block: latest processed block height
+/// - block_hashes: block_height -> block_hash
+/// - block_timestamps: block_height -> block_timestamp
+/// - finalized_heights: finalized block heights
+/// - main_chain_heights: main chain block heights
+/// - whitelisted_addresses: btc_address -> whitelisted timestamp
 /// - data_dir: data directory
 #[derive(Default)]
 pub struct UtxoCSVDatasource {
@@ -28,6 +34,7 @@ pub struct UtxoCSVDatasource {
     block_timestamps: RwLock<HashMap<i32, DateTime<Utc>>>,
     finalized_heights: RwLock<HashSet<i32>>,
     main_chain_heights: RwLock<HashSet<i32>>,
+    whitelisted_addresses: RwLock<HashMap<String, DateTime<Utc>>>,
     data_dir: PathBuf,
 }
 
@@ -45,6 +52,7 @@ impl UtxoCSVDatasource {
             block_timestamps: Default::default(),
             finalized_heights: Default::default(),
             main_chain_heights: Default::default(),
+            whitelisted_addresses: Default::default(),
             data_dir,
         });
 
@@ -64,9 +72,14 @@ impl UtxoCSVDatasource {
         self.data_dir.join("blocks.csv")
     }
 
+    fn get_whitelist_file_path(&self) -> PathBuf {
+        self.data_dir.join("whitelist.csv")
+    }
+
     fn load_data(&self) -> io::Result<()> {
         self.load_utxos()?;
         self.load_blocks()?;
+        self.load_whitelist()?;
         Ok(())
     }
 
@@ -116,6 +129,41 @@ impl UtxoCSVDatasource {
         if latest_height > 0 {
             *self.latest_block.write() = latest_height;
         }
+
+        Ok(())
+    }
+
+    fn load_whitelist(&self) -> io::Result<()> {
+        let path = self.get_whitelist_file_path();
+        if !path.exists() {
+            return Ok(());
+        }
+
+        let mut reader = Reader::from_path(&path)?;
+        let mut whitelist = self.whitelisted_addresses.write();
+
+        for result in reader.deserialize() {
+            let row: (String, String) = result?;
+            let address = row.0;
+            let added_at = DateTime::parse_from_rfc3339(&row.1)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+                .with_timezone(&Utc);
+
+            whitelist.insert(address, added_at);
+        }
+
+        Ok(())
+    }
+
+    fn save_whitelist(&self) -> io::Result<()> {
+        let path = self.get_whitelist_file_path();
+        let mut wtr = csv::Writer::from_path(path)?;
+
+        let whitelist = self.whitelisted_addresses.read();
+        for (address, added_at) in whitelist.iter() {
+            wtr.serialize((address, added_at.to_rfc3339()))?;
+        }
+        wtr.flush()?;
 
         Ok(())
     }
@@ -360,5 +408,56 @@ impl Datasource for UtxoCSVDatasource {
         *self.latest_block.write() = height;
 
         Ok(())
+    }
+
+    fn add_whitelisted_address(&self, address: &str) -> StorageResult<()> {
+        if address.is_empty() {
+            return Err(StorageError::InvalidAddress("Empty address".to_string()));
+        }
+
+        let mut whitelist = self.whitelisted_addresses.write();
+        whitelist.insert(address.to_string(), Utc::now());
+
+        // Save changes to disk
+        match self.save_whitelist() {
+            Ok(_) => Ok(()),
+            Err(e) => Err(StorageError::IoError(e.to_string())),
+        }
+    }
+
+    fn is_address_whitelisted(&self, address: &str) -> StorageResult<bool> {
+        if address.is_empty() {
+            return Err(StorageError::InvalidAddress("Empty address".to_string()));
+        }
+
+        // Always whitelist coinbase
+        if address == "coinbase" {
+            return Ok(true);
+        }
+
+        // If no addresses are whitelisted, consider all addresses whitelisted
+        let whitelist = self.whitelisted_addresses.read();
+        if whitelist.is_empty() {
+            return Ok(true);
+        }
+
+        Ok(whitelist.contains_key(address))
+    }
+
+    fn get_whitelisted_addresses(&self) -> StorageResult<Vec<WhitelistedAddress>> {
+        let whitelist = self.whitelisted_addresses.read();
+        let mut result = Vec::with_capacity(whitelist.len());
+
+        for (address, added_at) in whitelist.iter() {
+            result.push(WhitelistedAddress {
+                address: address.clone(),
+                added_at: *added_at,
+            });
+        }
+
+        // Sort by added_at in descending order (newest first)
+        result.sort_by(|a, b| b.added_at.cmp(&a.added_at));
+
+        Ok(result)
     }
 }

@@ -9,6 +9,7 @@ use network_shared::{BlockUpdate, UtxoUpdate, FINALITY_CONFIRMATIONS};
 use crate::datasources::Datasource;
 use crate::error::{StorageError, StorageResult};
 use crate::models::utxo::PendingChanges;
+use crate::models::whitelist::WhitelistedAddress;
 
 pub struct UtxoDatabase {
     datasource: Arc<dyn Datasource + Send + Sync>, // Send + Sync to make Arc thread safe
@@ -257,5 +258,23 @@ impl UtxoDatabase {
         timestamp: DateTime<Utc>,
     ) -> StorageResult<()> {
         self.datasource.store_block(height, hash, timestamp)
+    }
+
+    pub fn add_whitelisted_address(&self, address: &str) -> StorageResult<()> {
+        if address.is_empty() {
+            return Err(StorageError::InvalidAddress("Empty address".to_string()));
+        }
+        self.datasource.add_whitelisted_address(address)
+    }
+
+    pub fn is_address_whitelisted(&self, address: &str) -> StorageResult<bool> {
+        if address.is_empty() {
+            return Err(StorageError::InvalidAddress("Empty address".to_string()));
+        }
+        self.datasource.is_address_whitelisted(address)
+    }
+
+    pub fn get_whitelisted_addresses(&self) -> StorageResult<Vec<WhitelistedAddress>> {
+        self.datasource.get_whitelisted_addresses()
     }
 }

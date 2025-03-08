@@ -124,6 +124,29 @@ async fn handle_socket_connection(stream: UnixStream, db: Arc<UtxoDatabase>) -> 
                 error!("Error updating finality status: {}", e);
             }
         }
+        network_shared::NetworkMessage::CheckWhitelist { address } => {
+            info!(address = %address, "Received whitelist check request");
+
+            // Check if address is whitelisted
+            let is_whitelisted = match db.is_address_whitelisted(&address) {
+                Ok(result) => result,
+                Err(e) => {
+                    error!("Error checking whitelist status: {}", e);
+                    // Default to true if there's an error to be safe
+                    true
+                }
+            };
+
+            let response = network_shared::NetworkMessage::WhitelistResponse { is_whitelisted };
+
+            // Send the response
+            let response_data = bincode::serialize(&response)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+            let response_size = response_data.len() as u32;
+            stream.write_all(&response_size.to_le_bytes()).await?;
+            stream.write_all(&response_data).await?;
+        }
         _ => {
             error!("Received unknown message type");
         }

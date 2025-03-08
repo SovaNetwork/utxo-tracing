@@ -15,6 +15,8 @@ pub enum NetworkMessage {
     GetBlockHash { height: i32 },
     BlockHashResponse { hash: String },
     UpdateFinalityStatus { current_height: i32 },
+    CheckWhitelist { address: String },
+    WhitelistResponse { is_whitelisted: bool },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -149,5 +151,47 @@ impl SocketTransport {
         stream.write_all(&data).await?;
 
         Ok(())
+    }
+
+    pub async fn check_whitelist(&self, address: &str) -> Result<bool> {
+        use tokio::io::AsyncReadExt;
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::UnixStream;
+
+        // Connect to socket
+        let mut stream = UnixStream::connect(&self.socket_path).await?;
+
+        // Create a query message
+        let message = NetworkMessage::CheckWhitelist {
+            address: address.to_string(),
+        };
+
+        // Serialize with bincode
+        let data = bincode::serialize(&message)?;
+
+        // Send size header followed by data
+        let size = data.len() as u32;
+        stream.write_all(&size.to_le_bytes()).await?;
+        stream.write_all(&data).await?;
+
+        // Read the response size
+        let mut size_buf = [0u8; 4];
+        stream.read_exact(&mut size_buf).await?;
+        let size = u32::from_le_bytes(size_buf) as usize;
+
+        // Read the response data
+        let mut data = vec![0u8; size];
+        stream.read_exact(&mut data).await?;
+
+        // Deserialize the response
+        let response: NetworkMessage = bincode::deserialize(&data)?;
+
+        match response {
+            NetworkMessage::WhitelistResponse { is_whitelisted } => Ok(is_whitelisted),
+            _ => Err(TransportError::IoError(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Unexpected response type",
+            ))),
+        }
     }
 }

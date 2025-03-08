@@ -8,6 +8,7 @@ use network_shared::UtxoUpdate;
 
 use crate::error::{StorageError, StorageResult};
 use crate::models::utxo::PendingChanges;
+use crate::models::whitelist::WhitelistedAddress;
 
 pub trait Datasource {
     fn setup(&self) -> StorageResult<()>;
@@ -30,6 +31,9 @@ pub trait Datasource {
     fn mark_blocks_as_final(&self, threshold: i32) -> StorageResult<()>;
     fn mark_blocks_after_height_not_main_chain(&self, height: i32) -> StorageResult<()>;
     fn revert_utxos_after_height(&self, height: i32) -> StorageResult<()>;
+    fn add_whitelisted_address(&self, address: &str) -> StorageResult<()>;
+    fn is_address_whitelisted(&self, address: &str) -> StorageResult<bool>;
+    fn get_whitelisted_addresses(&self) -> StorageResult<Vec<WhitelistedAddress>>;
 }
 
 // Factory function to create datasource based on type
