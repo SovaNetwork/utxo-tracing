@@ -12,23 +12,28 @@ This repository contains two main services:
 2. **storage**: A UTXO database that stores and provides query endpoints for UTXO data
 3. **network-shared**: Shared code and data models used by both services
 
-These services use a high-performance communication method via Unix sockets with binary serialization (bincode) to minimize latency.
+These services use Unix sockets with binary serialization (bincode) to minimize latency.
 
 ## Architecture
 
 ### indexer
+
 - Connects to a Bitcoin node via RPC
 - Processes blocks and tracks UTXO creation and spending
 - Sends updates to the UTXO database via Unix socket
 - Optimized for fast processing of blockchain data
+- Supports address whitelisting
 
 ### storage
+
 - Stores UTXO data in SQLite or CSV (configurable)
 - Provides REST API for querying UTXOs
 - Receives updates via Unix socket
 - Supports querying UTXOs at specific block heights
+- Manages whitelisted addresses for selective indexing
 
 ### network-shared
+
 - Shared data models and serialization code
 - Common utilities and error handling
 
@@ -41,8 +46,10 @@ The UTXO database service provides these HTTP endpoints:
 - `GET /utxos/block/{height}/address/{address}`: Get UTXOs for an address at a specific block height
 - `GET /spendable-utxos/block/{height}/address/{address}`: Get spendable UTXOs for an address at a specific block height
 - `GET /select-utxos/block/{height}/address/{address}/amount/{amount}`: Select UTXOs for a specified amount
+- `GET /whitelist`: Get a list of all whitelisted addresses
+- `POST /whitelist`: Add an address to the whitelist
 
-*Note: querying data for blocks less than 6 blocks behind the chain tip are subject to change based on the reorg mechanics described below.*
+_Note: querying data for blocks less than 6 blocks behind the chain tip are subject to change based on the reorg mechanics described below._
 
 ## Installation
 
@@ -61,33 +68,55 @@ docker-compose up -d
 
 ### network-indexer
 
-| Environment Variable | Description | Default |
-|---------------------|-------------|---------|
-| RUST_LOG | Log level | info |
-| RPC_HOST | Bitcoin RPC host | bitcoin |
-| RPC_PORT | Bitcoin RPC port | 18443 |
-| RPC_USER | Bitcoin RPC username | user |
-| RPC_PASSWORD | Bitcoin RPC password | password |
-| SOCKET_PATH | Path to Unix socket | /tmp/network-utxos.sock |
-| START_HEIGHT | Block height to start from | 0 |
-| POLLING_RATE | Polling interval in milliseconds | 500 |
-| MAX_BLOCKS_PER_BATCH | Maximum blocks to process in a batch | 200 |
+| Environment Variable | Description                          | Default                 |
+| -------------------- | ------------------------------------ | ----------------------- |
+| RUST_LOG             | Log level                            | info                    |
+| RPC_HOST             | Bitcoin RPC host                     | bitcoin                 |
+| RPC_PORT             | Bitcoin RPC port                     | 18443                   |
+| RPC_USER             | Bitcoin RPC username                 | user                    |
+| RPC_PASSWORD         | Bitcoin RPC password                 | password                |
+| SOCKET_PATH          | Path to Unix socket                  | /tmp/network-utxos.sock |
+| START_HEIGHT         | Block height to start from           | 0                       |
+| POLLING_RATE         | Polling interval in milliseconds     | 500                     |
+| MAX_BLOCKS_PER_BATCH | Maximum blocks to process in a batch | 200                     |
 
 ### network-utxos
 
-| Environment Variable | Description | Default |
-|---------------------|-------------|---------|
-| RUST_LOG | Log level | info |
-| HOST | Host to bind HTTP server | 0.0.0.0 |
-| PORT | HTTP server port | 5557 |
-| LOG_LEVEL | Log level | info |
-| DATASOURCE | Storage backend (csv/sqlite) | sqlite |
-| SOCKET_PATH | Path to Unix socket | /tmp/network-utxos.sock |
+| Environment Variable | Description                  | Default                 |
+| -------------------- | ---------------------------- | ----------------------- |
+| RUST_LOG             | Log level                    | info                    |
+| HOST                 | Host to bind HTTP server     | 0.0.0.0                 |
+| PORT                 | HTTP server port             | 5557                    |
+| LOG_LEVEL            | Log level                    | info                    |
+| DATASOURCE           | Storage backend (csv/sqlite) | sqlite                  |
+| SOCKET_PATH          | Path to Unix socket          | /tmp/network-utxos.sock |
 
+## Address Whitelisting
+
+The system supports selective indexing through address whitelisting:
+
+- When no addresses are in the whitelist, nothing is indexed
+- Addresses must be explicitly added to the whitelist to be tracked by the indexer
+- Addresses cannot be removed from the whitelist once added
+- This significantly reduces storage requirements and improves performance
+
+#### Adding an address to the whitelist
+
+```bash
+curl -X POST http://localhost:5557/whitelist \
+  -H "Content-Type: application/json" \
+  -d '{"address":"1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"}'
+```
+
+#### Viewing whitelisted addresses
+
+```bash
+curl http://localhost:5557/whitelist
+```
 
 ## Blockchain Reorganization Handling
 
-The system is designed to handle blockchain reorganizations (reorgs) for up to 6 blocks behind the current block. 
+The system is designed to handle blockchain reorganizations (reorgs) for up to 6 blocks behind the current block.
 
 ## Performance Considerations
 
@@ -95,6 +124,7 @@ The system is designed to handle blockchain reorganizations (reorgs) for up to 6
 - Configurable batch processing
 - Supports multiple storage backends
 - Optimized for high-throughput UTXO tracking
+- Address whitelisting for selective indexing and reduced storage requirements
 
 ## License
 

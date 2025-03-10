@@ -1,4 +1,3 @@
-use bitcoincore_rpc;
 use network_shared::TransportError;
 use std::error::Error;
 use std::fmt;
@@ -9,7 +8,6 @@ pub enum IndexerError {
     BitcoinRPC(bitcoincore_rpc::Error),
     Network(TransportError),
     InvalidTimestamp,
-    ScriptParsing(String),
     InvalidStartBlock(String),
 }
 
@@ -19,7 +17,6 @@ impl fmt::Display for IndexerError {
             IndexerError::BitcoinRPC(e) => write!(f, "Bitcoin RPC error: {}", e),
             IndexerError::Network(e) => write!(f, "Network error: {}", e),
             IndexerError::InvalidTimestamp => write!(f, "Invalid timestamp"),
-            IndexerError::ScriptParsing(msg) => write!(f, "Script parsing error: {}", msg),
             IndexerError::InvalidStartBlock(msg) => write!(f, "Invalid start block: {}", msg),
         }
     }

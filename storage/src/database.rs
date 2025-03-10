@@ -9,6 +9,7 @@ use network_shared::{BlockUpdate, UtxoUpdate, FINALITY_CONFIRMATIONS};
 use crate::datasources::Datasource;
 use crate::error::{StorageError, StorageResult};
 use crate::models::utxo::PendingChanges;
+use crate::models::whitelist::WhitelistedAddress;
 
 pub struct UtxoDatabase {
     datasource: Arc<dyn Datasource + Send + Sync>, // Send + Sync to make Arc thread safe
@@ -21,7 +22,7 @@ impl UtxoDatabase {
             datasource.get_type()
         );
 
-        return Arc::new(Self { datasource });
+        Arc::new(Self { datasource })
     }
 
     pub fn get_latest_block(&self) -> StorageResult<i32> {
@@ -208,10 +209,7 @@ impl UtxoDatabase {
         let height = std::cmp::max(height, 0);
 
         // Get current finality threshold (safely)
-        let latest_height = match self.get_latest_block() {
-            Ok(h) => h,
-            Err(_) => 0, // Default to 0 if no blocks exist
-        };
+        let latest_height = self.get_latest_block().unwrap_or(0); // Default to 0 if no blocks exist
 
         // Never roll back past the finality threshold
         let finality_threshold = latest_height - network_shared::FINALITY_CONFIRMATIONS + 1;
@@ -257,5 +255,23 @@ impl UtxoDatabase {
         timestamp: DateTime<Utc>,
     ) -> StorageResult<()> {
         self.datasource.store_block(height, hash, timestamp)
+    }
+
+    pub fn add_whitelisted_address(&self, address: &str) -> StorageResult<()> {
+        if address.is_empty() {
+            return Err(StorageError::InvalidAddress("Empty address".to_string()));
+        }
+        self.datasource.add_whitelisted_address(address)
+    }
+
+    pub fn is_address_whitelisted(&self, address: &str) -> StorageResult<bool> {
+        if address.is_empty() {
+            return Err(StorageError::InvalidAddress("Empty address".to_string()));
+        }
+        self.datasource.is_address_whitelisted(address)
+    }
+
+    pub fn get_whitelisted_addresses(&self) -> StorageResult<Vec<WhitelistedAddress>> {
+        self.datasource.get_whitelisted_addresses()
     }
 }

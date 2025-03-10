@@ -1,4 +1,5 @@
 use actix_web::{web, HttpResponse};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::log::error;
 use tracing::{info, instrument};
@@ -20,7 +21,60 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .route(
             "/select-utxos/block/{height}/address/{address}/amount/{amount}",
             web::get().to(select_utxos),
-        );
+        )
+        .route("/whitelist", web::post().to(add_whitelisted_address))
+        .route("/whitelist", web::get().to(get_whitelisted_addresses));
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct WhitelistRequest {
+    address: String,
+}
+
+#[instrument(skip(state))]
+async fn add_whitelisted_address(
+    state: web::Data<AppState>,
+    req: web::Json<WhitelistRequest>,
+) -> HttpResponse {
+    let address = &req.address;
+
+    if address.is_empty() {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "Address cannot be empty"
+        }));
+    }
+
+    info!(address = %address, "Adding address to whitelist");
+
+    match state.db.add_whitelisted_address(address) {
+        Ok(_) => HttpResponse::Ok().json(json!({
+            "success": true,
+            "address": address
+        })),
+        Err(e) => {
+            error!("Failed to add address to whitelist: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to add address to whitelist: {}", e)
+            }))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn get_whitelisted_addresses(state: web::Data<AppState>) -> HttpResponse {
+    info!("Getting whitelisted addresses");
+
+    match state.db.get_whitelisted_addresses() {
+        Ok(addresses) => HttpResponse::Ok().json(json!({
+            "addresses": addresses
+        })),
+        Err(e) => {
+            error!("Failed to get whitelisted addresses: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to get whitelisted addresses: {}", e)
+            }))
+        }
+    }
 }
 
 #[instrument(skip(state))]
