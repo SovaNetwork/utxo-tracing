@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.81-slim-bookworm as builder
+FROM rust:1.81-slim-bookworm AS builder
 
 # Create a new empty shell project
 WORKDIR /usr/src/app

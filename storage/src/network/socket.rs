@@ -125,7 +125,7 @@ async fn handle_socket_connection(stream: UnixStream, db: Arc<UtxoDatabase>) -> 
             }
         }
         network_shared::NetworkMessage::CheckWhitelist { address } => {
-            info!(address = %address, "Received whitelist check request");
+            debug!(address = %address, "Received whitelist check request");
 
             // Check if address is whitelisted
             let is_whitelisted = match db.is_address_whitelisted(&address) {

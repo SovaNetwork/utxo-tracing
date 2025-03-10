@@ -1,6 +1,6 @@
 use crate::error::Result;
 use bitcoincore_rpc::bitcoin::{Address, Network, ScriptBuf, Witness};
-use log::warn;
+use log::debug;
 
 /// Determines the type of a Bitcoin script
 pub fn determine_script_type(script: ScriptBuf) -> String {
@@ -19,7 +19,7 @@ pub fn determine_script_type(script: ScriptBuf) -> String {
     } else if script.is_p2pk() {
         "P2PK".to_string()
     } else {
-        warn!(
+        debug!(
             "Nonstandard script type: {}",
             hex::encode(script.as_bytes())
         );
@@ -34,7 +34,7 @@ pub fn extract_address(script: ScriptBuf, network: Network) -> Result<String> {
         Err(_) => {
             // For non-standard scripts, use a representation based on the script hash
             let script_hash = script.script_hash();
-            Ok(format!("nonstandard:{}", script_hash))
+            Ok(format!("{}", script_hash))
         }
     }
 }

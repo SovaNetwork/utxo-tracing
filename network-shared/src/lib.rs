@@ -47,7 +47,7 @@ pub struct UtxoUpdate {
 
 // Socket transport implementation for sender side
 pub struct SocketTransport {
-    socket_path: String,
+    pub socket_path: String,
 }
 
 impl SocketTransport {
