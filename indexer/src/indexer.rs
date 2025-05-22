@@ -7,11 +7,22 @@ use log::{error, info};
 use network_shared::{BlockUpdate, SocketTransport, UtxoUpdate, FINALITY_CONFIRMATIONS};
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio;
 use tokio::sync::RwLock;
 
 use crate::error::{IndexerError, Result};
 use crate::utils::{determine_script_type, extract_public_key};
+
+/// Configuration for creating a [`BitcoinIndexer`].
+pub struct IndexerConfig {
+    pub network: Network,
+    pub rpc_user: String,
+    pub rpc_password: String,
+    pub rpc_host: String,
+    pub rpc_port: u16,
+    pub socket_path: String,
+    pub start_height: i32,
+    pub max_blocks_per_batch: i32,
+}
 
 /// The main Bitcoin indexer that processes blocks and transactions
 pub struct BitcoinIndexer {
@@ -26,38 +37,29 @@ pub struct BitcoinIndexer {
 
 impl BitcoinIndexer {
     /// Creates a new BitcoinIndexer instance
-    pub fn new(
-        network: Network,
-        rpc_user: &str,
-        rpc_password: &str,
-        rpc_host: &str,
-        rpc_port: u16,
-        socket_path: &str,
-        start_height: i32,
-        max_blocks_per_batch: i32,
-    ) -> Result<Self> {
-        let rpc_url = format!("http://{}:{}", rpc_host, rpc_port);
-        let auth = Auth::UserPass(rpc_user.to_string(), rpc_password.to_string());
+    pub fn new(config: IndexerConfig) -> Result<Self> {
+        let rpc_url = format!("http://{}:{}", config.rpc_host, config.rpc_port);
+        let auth = Auth::UserPass(config.rpc_user.clone(), config.rpc_password.clone());
         let rpc_client = Client::new(&rpc_url, auth).map_err(IndexerError::BitcoinRPC)?;
 
         // Validate start block
         let chain_height = rpc_client.get_block_count()? as i32;
-        if start_height < 0 || start_height > chain_height {
+        if config.start_height < 0 || config.start_height > chain_height {
             return Err(IndexerError::InvalidStartBlock(format!(
                 "Start block {} is invalid. Chain height is {}",
-                start_height, chain_height
+                config.start_height, chain_height
             )));
         }
 
-        let socket_transport = SocketTransport::new(socket_path);
+        let socket_transport = SocketTransport::new(&config.socket_path);
 
         Ok(Self {
             rpc_client,
-            network,
+            network: config.network,
             socket_transport,
-            last_processed_height: start_height - 1,
-            start_height,
-            max_blocks_per_batch,
+            last_processed_height: config.start_height - 1,
+            start_height: config.start_height,
+            max_blocks_per_batch: config.max_blocks_per_batch,
             watched_addresses: Arc::new(RwLock::new(HashSet::new())),
         })
     }

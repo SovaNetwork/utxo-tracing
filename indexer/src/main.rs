@@ -12,7 +12,7 @@ use reqwest::Url;
 use tokio::task;
 
 use crate::api::{run_server, ApiState};
-use crate::indexer::BitcoinIndexer;
+use crate::indexer::{BitcoinIndexer, IndexerConfig};
 
 /// Command line arguments for the Bitcoin indexer
 #[derive(Parser, Debug)]
@@ -108,17 +108,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let args = Args::parse();
 
-    let network = args.parse_network();
-    let mut indexer = BitcoinIndexer::new(
-        network,
-        &args.rpc_user,
-        &args.rpc_password,
-        &args.rpc_host,
-        args.rpc_port,
-        &args.socket_path,
-        args.start_height,
-        args.max_blocks_per_batch,
-    )?;
+    let config = IndexerConfig {
+        network: args.parse_network(),
+        rpc_user: args.rpc_user.clone(),
+        rpc_password: args.rpc_password.clone(),
+        rpc_host: args.rpc_host.clone(),
+        rpc_port: args.rpc_port,
+        socket_path: args.socket_path.clone(),
+        start_height: args.start_height,
+        max_blocks_per_batch: args.max_blocks_per_batch,
+    };
+    let mut indexer = BitcoinIndexer::new(config)?;
 
     let enclave_url = std::env::var("ENCLAVE_URL").expect("ENCLAVE_URL must be set");
     validate_enclave_url(&enclave_url).expect("Invalid ENCLAVE_URL");
