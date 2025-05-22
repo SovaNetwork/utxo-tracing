@@ -3,12 +3,13 @@ mod indexer;
 mod utils;
 mod api;
 
-use std::{error::Error, time::Duration};
+use std::{error::Error, net::IpAddr, time::Duration};
 
 use bitcoincore_rpc::bitcoin::Network;
 
 use clap::Parser;
 use tokio::task;
+use reqwest::Url;
 
 use crate::indexer::BitcoinIndexer;
 use crate::api::{run_server, ApiState};
@@ -72,6 +73,35 @@ impl Args {
     }
 }
 
+fn validate_enclave_url(url_str: &str) -> Result<(), String> {
+    let url = Url::parse(url_str).map_err(|_| "Invalid ENCLAVE_URL".to_string())?;
+    let host = url.host_str().ok_or("ENCLAVE_URL missing host")?;
+
+    if host == "localhost" {
+        return Ok(());
+    }
+
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        if ip.is_loopback() {
+            return Ok(());
+        }
+        match ip {
+            IpAddr::V4(v4) => {
+                if v4.is_private() {
+                    return Ok(());
+                }
+            }
+            IpAddr::V6(v6) => {
+                if v6.is_unique_local() {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    Err("ENCLAVE_URL must point to localhost or private network".to_string())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
@@ -91,8 +121,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )?;
 
     let enclave_url = std::env::var("ENCLAVE_URL").expect("ENCLAVE_URL must be set");
+    validate_enclave_url(&enclave_url).expect("Invalid ENCLAVE_URL");
     let utxo_url = std::env::var("UTXO_URL").unwrap_or_else(|_| "http://network-utxos:5557".to_string());
-    let enclave_api_key = std::env::var("ENCLAVE_API_KEY").unwrap_or_default();
+    let enclave_api_key = std::env::var("ENCLAVE_API_KEY").expect("ENCLAVE_API_KEY must be set");
+    if enclave_api_key.trim().is_empty() {
+        panic!("ENCLAVE_API_KEY must be set");
+    }
 
     let api_state = ApiState {
         watched_addresses: indexer.watched_addresses(),
