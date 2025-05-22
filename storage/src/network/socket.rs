@@ -43,10 +43,10 @@ async fn handle_socket_connection(stream: UnixStream, db: Arc<UtxoDatabase>) -> 
     let mut size_buf = [0u8; 4];
     if let Err(e) = stream.read_exact(&mut size_buf).await {
         // Handle gracefully disconnects or short reads
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("Failed to read message size: {}", e),
-        ));
+        return Err(std::io::Error::other(format!(
+            "Failed to read message size: {}",
+            e
+        )));
     }
 
     let size = u32::from_le_bytes(size_buf) as usize;
@@ -54,20 +54,20 @@ async fn handle_socket_connection(stream: UnixStream, db: Arc<UtxoDatabase>) -> 
     // Read data
     let mut data = vec![0u8; size];
     if let Err(e) = stream.read_exact(&mut data).await {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("Failed to read message data: {}", e),
-        ));
+        return Err(std::io::Error::other(format!(
+            "Failed to read message data: {}",
+            e
+        )));
     }
 
     // Deserialize the message, handle deserialization errors gracefully
     let message = match bincode::deserialize::<network_shared::NetworkMessage>(&data) {
         Ok(msg) => msg,
         Err(e) => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Failed to deserialize message: {}", e),
-            ));
+            return Err(std::io::Error::other(format!(
+                "Failed to deserialize message: {}",
+                e
+            )));
         }
     };
 

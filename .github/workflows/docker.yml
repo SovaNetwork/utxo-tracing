@@ -9,8 +9,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
+  DOCKER_IMAGE_NAME: ghcr.io/sovanetwork/utxo-tracing
   DOCKER_USERNAME: ${{ github.actor }}
 
 jobs:
