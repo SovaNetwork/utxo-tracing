@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::RwLock;
 use warp::{http::StatusCode, Filter, Reply};
-use log::info;
+use log::{debug, error, info};
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -48,6 +48,11 @@ pub struct SelectUtxosRequest {
 pub struct SignTransactionRequest {
     pub inputs: Vec<serde_json::Value>,
     pub outputs: Vec<serde_json::Value>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct SignTransactionResponse {
+    pub signed_tx: String,
 }
 
 fn parse_bitcoin_address(addr: &str, network: Network) -> Result<Address, String> {
@@ -197,27 +202,56 @@ pub async fn sign_transaction_handler(
     req: SignTransactionRequest,
     state: ApiState,
 ) -> Result<impl Reply, Infallible> {
+    info!(
+        "Signing transaction with {} inputs and {} outputs",
+        req.inputs.len(),
+        req.outputs.len()
+    );
+
+    if state.enclave_api_key.trim().is_empty() {
+        error!("ENCLAVE_API_KEY not configured");
+        let resp = warp::reply::json(&json!({ "error": "ENCLAVE_API_KEY missing" }));
+        return Ok(warp::reply::with_status(resp, StatusCode::INTERNAL_SERVER_ERROR));
+    }
+
+    debug!("Forwarding signing request to enclave: {}", state.enclave_url);
+
     let client = Client::new();
     let resp = client
         .post(format!("{}/sign_transaction", state.enclave_url))
-        .header("X-API-Key", state.enclave_api_key)
+        .header("X-API-Key", state.enclave_api_key.clone())
         .json(&req)
         .send()
         .await;
 
     match resp {
         Ok(r) if r.status().is_success() => {
-            match r.json::<serde_json::Value>().await {
-                Ok(val) => Ok(warp::reply::with_status(warp::reply::json(&val), StatusCode::OK)),
-                Err(_) => Ok(warp::reply::with_status(warp::reply::json(&json!({ "error": "Invalid response" })), StatusCode::INTERNAL_SERVER_ERROR)),
+            match r.json::<SignTransactionResponse>().await {
+                Ok(val) => {
+                    if hex::decode(&val.signed_tx).is_err() {
+                        error!("Enclave returned invalid hex");
+                        let resp = warp::reply::json(&json!({ "error": "Invalid response" }));
+                        return Ok(warp::reply::with_status(resp, StatusCode::INTERNAL_SERVER_ERROR));
+                    }
+                    info!("Successfully signed transaction");
+                    debug!("Enclave returned signed tx: {}", val.signed_tx);
+                    Ok(warp::reply::with_status(warp::reply::json(&val), StatusCode::OK))
+                }
+                Err(e) => {
+                    error!("Failed to parse enclave response: {:?}", e);
+                    let resp = warp::reply::json(&json!({ "error": "Invalid response" }));
+                    Ok(warp::reply::with_status(resp, StatusCode::INTERNAL_SERVER_ERROR))
+                }
             }
         }
         Ok(r) => {
             let status = r.status();
             let err = r.text().await.unwrap_or_else(|_| "Failed".to_string());
+            error!("Enclave signing failed: {}", err);
             Ok(warp::reply::with_status(warp::reply::json(&json!({ "error": err })), status))
         }
-        Err(_) => {
+        Err(e) => {
+            error!("Failed to contact enclave: {}", e);
             let resp = warp::reply::json(&json!({ "error": "Failed to contact enclave" }));
             Ok(warp::reply::with_status(resp, StatusCode::INTERNAL_SERVER_ERROR))
         }
