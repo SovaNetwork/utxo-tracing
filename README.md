@@ -75,6 +75,7 @@ docker-compose up -d
 | MAX_BLOCKS_PER_BATCH | Maximum blocks to process in a batch | 200 |
 | API_HOST | API server host | 0.0.0.0 |
 | API_PORT | API server port | 3031 |
+| ENCLAVE_URL | URL of the enclave service | - |
 
 ### network-utxos
 

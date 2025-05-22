@@ -47,7 +47,8 @@ ENV SOCKET_PATH="/tmp/network-utxos.sock" \
     POLLING_RATE=500 \
     MAX_BLOCKS_PER_BATCH=200 \
     API_HOST=0.0.0.0 \
-    API_PORT=3031
+    API_PORT=3031 \
+    ENCLAVE_URL="http://enclave:8080"
 
 # Use shell form to allow environment variable expansion
 CMD indexer \
