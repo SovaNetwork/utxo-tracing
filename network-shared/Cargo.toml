@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bitcoin.workspace = true
 bincode.workspace = true
 chrono.workspace = true
 serde.workspace = true

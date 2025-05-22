@@ -7,7 +7,6 @@ edition = "2021"
 network-shared = { path = "../network-shared" }
 
 actix-web = "4.9.0"
-bitcoin.workspace = true
 bincode.workspace = true
 chrono.workspace = true
 clap.workspace = true

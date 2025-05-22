@@ -26,7 +26,7 @@ pub fn determine_script_type(script: ScriptBuf) -> String {
 pub fn extract_address(script: ScriptBuf, network: Network) -> Result<String> {
     Address::from_script(&script, network)
         .map(|addr| addr.to_string())
-        .map_err(|_| IndexerError::ScriptParsing("Failed to parse address from script".to_string()))
+        .ok_or_else(|| IndexerError::ScriptParsing("Failed to parse address from script".to_string()))
 }
 
 /// Extracts a public key from a Bitcoin witness
