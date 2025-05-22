@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use bitcoincore_rpc::bitcoin::{address::NetworkUnchecked, Address, Network};
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::RwLock;
 use warp::{http::StatusCode, Filter, Reply};
@@ -15,6 +15,8 @@ pub struct ApiState {
     pub watched_addresses: Arc<RwLock<HashSet<Address>>>,
     pub network: Network,
     pub enclave_url: String,
+    pub utxo_url: String,
+    pub enclave_api_key: String,
 }
 
 fn with_state(state: ApiState) -> impl Filter<Extract = (ApiState,), Error = Infallible> + Clone {
@@ -34,6 +36,18 @@ pub struct DeriveAddressRequest {
 #[derive(Deserialize)]
 pub struct DeriveAddressResponse {
     pub address: String,
+}
+
+#[derive(Deserialize)]
+pub struct SelectUtxosRequest {
+    pub block_height: i32,
+    pub target_amount: i64,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct SignTransactionRequest {
+    pub inputs: Vec<serde_json::Value>,
+    pub outputs: Vec<serde_json::Value>,
 }
 
 fn parse_bitcoin_address(addr: &str, network: Network) -> Result<Address, String> {
@@ -122,6 +136,94 @@ pub async fn derive_address_handler(
     }
 }
 
+pub async fn select_utxos_handler(
+    req: SelectUtxosRequest,
+    state: ApiState,
+) -> Result<impl Reply, Infallible> {
+    let client = Client::new();
+
+    let addresses: Vec<Address> = {
+        let set = state.watched_addresses.read().await;
+        set.iter().cloned().collect()
+    };
+
+    let mut utxos: Vec<network_shared::UtxoUpdate> = Vec::new();
+
+    for addr in addresses {
+        let url = format!(
+            "{}/spendable-utxos/block/{}/address/{}",
+            state.utxo_url, req.block_height, addr
+        );
+
+        if let Ok(resp) = client.get(&url).send().await {
+            if resp.status().is_success() {
+                if let Ok(value) = resp.json::<serde_json::Value>().await {
+                    if let Some(list) = value.get("spendable_utxos") {
+                        if let Ok(list) = serde_json::from_value::<Vec<network_shared::UtxoUpdate>>(list.clone()) {
+                            utxos.extend(list);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    utxos.sort_by_key(|u| u.block_height);
+
+    let mut selected = Vec::new();
+    let mut total = 0i64;
+
+    for utxo in utxos.into_iter() {
+        if total >= req.target_amount {
+            break;
+        }
+        selected.push(utxo.clone());
+        total += utxo.amount;
+    }
+
+    if total < req.target_amount {
+        let resp = warp::reply::json(&json!({ "error": "Insufficient funds" }));
+        return Ok(warp::reply::with_status(resp, StatusCode::BAD_REQUEST));
+    }
+
+    let resp = warp::reply::json(&json!({
+        "selected_utxos": selected,
+        "total": total
+    }));
+    Ok(warp::reply::with_status(resp, StatusCode::OK))
+}
+
+pub async fn sign_transaction_handler(
+    req: SignTransactionRequest,
+    state: ApiState,
+) -> Result<impl Reply, Infallible> {
+    let client = Client::new();
+    let resp = client
+        .post(format!("{}/sign_transaction", state.enclave_url))
+        .header("X-API-Key", state.enclave_api_key)
+        .json(&req)
+        .send()
+        .await;
+
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            match r.json::<serde_json::Value>().await {
+                Ok(val) => Ok(warp::reply::with_status(warp::reply::json(&val), StatusCode::OK)),
+                Err(_) => Ok(warp::reply::with_status(warp::reply::json(&json!({ "error": "Invalid response" })), StatusCode::INTERNAL_SERVER_ERROR)),
+            }
+        }
+        Ok(r) => {
+            let status = r.status();
+            let err = r.text().await.unwrap_or_else(|_| "Failed".to_string());
+            Ok(warp::reply::with_status(warp::reply::json(&json!({ "error": err })), status))
+        }
+        Err(_) => {
+            let resp = warp::reply::json(&json!({ "error": "Failed to contact enclave" }));
+            Ok(warp::reply::with_status(resp, StatusCode::INTERNAL_SERVER_ERROR))
+        }
+    }
+}
+
 pub async fn run_server(host: &str, port: u16, state: ApiState) {
     let post_route = warp::post()
         .and(warp::path("watch-address"))
@@ -138,10 +240,26 @@ pub async fn run_server(host: &str, port: u16, state: ApiState) {
     let derive_address_route = warp::post()
         .and(warp::path("derive-address"))
         .and(warp::body::json())
-        .and(with_state(state))
+        .and(with_state(state.clone()))
         .and_then(derive_address_handler);
 
-    let routes = post_route.or(get_route).or(derive_address_route);
+    let select_utxos_route = warp::post()
+        .and(warp::path("select-utxos"))
+        .and(warp::body::json())
+        .and(with_state(state.clone()))
+        .and_then(select_utxos_handler);
+
+    let sign_tx_route = warp::post()
+        .and(warp::path("sign-transaction"))
+        .and(warp::body::json())
+        .and(with_state(state))
+        .and_then(sign_transaction_handler);
+
+    let routes = post_route
+        .or(get_route)
+        .or(derive_address_route)
+        .or(select_utxos_route)
+        .or(sign_tx_route);
 
     let addr: std::net::IpAddr = host.parse().unwrap_or_else(|_| "0.0.0.0".parse().unwrap());
     warp::serve(routes).run((addr, port)).await;

@@ -76,6 +76,8 @@ docker-compose up -d
 | API_HOST | API server host | 0.0.0.0 |
 | API_PORT | API server port | 3031 |
 | ENCLAVE_URL | URL of the enclave service | - |
+| UTXO_URL | URL of the UTXO database service | http://network-utxos:5557 |
+| ENCLAVE_API_KEY | API key for enclave requests | - |
 
 ### network-utxos
 
