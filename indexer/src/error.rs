@@ -1,4 +1,3 @@
-use bitcoincore_rpc;
 use network_shared::TransportError;
 use std::error::Error;
 use std::fmt;
