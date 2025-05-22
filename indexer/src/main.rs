@@ -1,14 +1,17 @@
 mod error;
 mod indexer;
 mod utils;
+mod api;
 
 use std::{error::Error, time::Duration};
 
 use bitcoincore_rpc::bitcoin::Network;
 
 use clap::Parser;
+use tokio::task;
 
 use crate::indexer::BitcoinIndexer;
+use crate::api::{run_server, ApiState};
 
 /// Command line arguments for the Bitcoin indexer
 #[derive(Parser, Debug)]
@@ -79,6 +82,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         args.start_height,
         args.max_blocks_per_batch,
     )?;
+
+    let api_state = ApiState {
+        watched_addresses: indexer.watched_addresses(),
+    };
+
+    // Run HTTP server in background
+    task::spawn(async move {
+        run_server(api_state).await;
+    });
 
     indexer
         .run(Duration::from_millis(args.polling_rate))
