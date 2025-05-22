@@ -4,11 +4,11 @@ use bitcoincore_rpc::bitcoin::{Address, Block, BlockHash, Network};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use chrono::{DateTime, Utc};
 use log::{error, info};
+use network_shared::{BlockUpdate, SocketTransport, UtxoUpdate, FINALITY_CONFIRMATIONS};
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use network_shared::{BlockUpdate, SocketTransport, UtxoUpdate, FINALITY_CONFIRMATIONS};
 use tokio;
+use tokio::sync::RwLock;
 
 use crate::error::{IndexerError, Result};
 use crate::utils::{determine_script_type, extract_public_key};
@@ -75,8 +75,9 @@ impl BitcoinIndexer {
         let timestamp = DateTime::<Utc>::from_timestamp(block.header.time as i64, 0)
             .ok_or(IndexerError::InvalidTimestamp)?;
 
-        let utxo_updates =
-            self.process_transactions(&block, block_info.height as i32, timestamp).await?;
+        let utxo_updates = self
+            .process_transactions(&block, block_info.height as i32, timestamp)
+            .await?;
 
         Ok(BlockUpdate {
             height: block_info.height as i32,
@@ -114,7 +115,8 @@ impl BitcoinIndexer {
                     .rpc_client
                     .get_raw_transaction(&input.previous_output.txid, None)?;
                 let prev_output = &prev_tx.output[input.previous_output.vout as usize];
-                if let Ok(address) = Address::from_script(&prev_output.script_pubkey, self.network) {
+                if let Ok(address) = Address::from_script(&prev_output.script_pubkey, self.network)
+                {
                     let watch_set = self.watched_addresses.read().await;
                     if !watch_set.contains(&address) {
                         continue;
