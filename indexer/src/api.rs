@@ -34,7 +34,8 @@ pub async fn watch_address_handler(
                 set.insert(addr.clone());
             }
             info!("Added watched address {}", addr);
-            Ok(warp::reply::with_status("OK", StatusCode::OK))
+            let resp = warp::reply::json(&json!({ "status": "OK" }));
+            Ok(warp::reply::with_status(resp, StatusCode::OK))
         }
         Err(_) => {
             let resp = warp::reply::json(&json!({ "error": "Invalid BTC address" }));

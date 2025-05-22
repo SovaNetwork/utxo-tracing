@@ -5,8 +5,6 @@ edition = "2021"
 
 [dependencies]
 network-shared = { path = "../network-shared" }
-
-bitcoin.workspace = true
 bitcoincore-rpc = "0.17.0"
 bincode.workspace = true
 chrono.workspace = true
