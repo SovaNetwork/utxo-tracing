@@ -92,7 +92,9 @@ fn validate_enclave_url(url_str: &str) -> Result<(), String> {
                 }
             }
             IpAddr::V6(v6) => {
-                if v6.is_unique_local() {
+                // Accept IPv6 Unique Local Addresses (fc00::/7) on stable Rust
+                let first_octet = v6.octets()[0];
+                if (first_octet & 0xFE) == 0xFC {
                     return Ok(());
                 }
             }
