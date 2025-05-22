@@ -1,18 +1,18 @@
+mod api;
 mod error;
 mod indexer;
 mod utils;
-mod api;
 
 use std::{error::Error, net::IpAddr, time::Duration};
 
 use bitcoincore_rpc::bitcoin::Network;
 
 use clap::Parser;
-use tokio::task;
 use reqwest::Url;
+use tokio::task;
 
-use crate::indexer::BitcoinIndexer;
 use crate::api::{run_server, ApiState};
+use crate::indexer::BitcoinIndexer;
 
 /// Command line arguments for the Bitcoin indexer
 #[derive(Parser, Debug)]
@@ -122,7 +122,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let enclave_url = std::env::var("ENCLAVE_URL").expect("ENCLAVE_URL must be set");
     validate_enclave_url(&enclave_url).expect("Invalid ENCLAVE_URL");
-    let utxo_url = std::env::var("UTXO_URL").unwrap_or_else(|_| "http://network-utxos:5557".to_string());
+    let utxo_url =
+        std::env::var("UTXO_URL").unwrap_or_else(|_| "http://network-utxos:5557".to_string());
     let enclave_api_key = std::env::var("ENCLAVE_API_KEY").expect("ENCLAVE_API_KEY must be set");
     if enclave_api_key.trim().is_empty() {
         panic!("ENCLAVE_API_KEY must be set");
