@@ -45,7 +45,7 @@ services:
       - MAX_BLOCKS_PER_BATCH=${INDEXER_MAX_BLOCKS:-200}
       - API_HOST=0.0.0.0
       - API_PORT=3031
-      - ENCLAVE_URL=http://enclave:8080
+      - ENCLAVE_URL=http://enclave:5555
     networks:
       - bitcoin_network
     depends_on:

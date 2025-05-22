@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.81-slim-bookworm as builder
+FROM rust:1.81-slim-bookworm AS builder
 
 # Create a new empty shell project
 WORKDIR /usr/src/app
@@ -48,7 +48,7 @@ ENV SOCKET_PATH="/tmp/network-utxos.sock" \
     MAX_BLOCKS_PER_BATCH=200 \
     API_HOST=0.0.0.0 \
     API_PORT=3031 \
-    ENCLAVE_URL="http://enclave:8080"
+    ENCLAVE_URL="http://network-enclave:5555"
 
 # Use shell form to allow environment variable expansion
 CMD indexer \
