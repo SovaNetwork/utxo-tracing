@@ -21,7 +21,7 @@ impl UtxoDatabase {
             datasource.get_type()
         );
 
-        return Arc::new(Self { datasource });
+        Arc::new(Self { datasource })
     }
 
     pub fn get_latest_block(&self) -> StorageResult<i32> {
@@ -208,10 +208,7 @@ impl UtxoDatabase {
         let height = std::cmp::max(height, 0);
 
         // Get current finality threshold (safely)
-        let latest_height = match self.get_latest_block() {
-            Ok(h) => h,
-            Err(_) => 0, // Default to 0 if no blocks exist
-        };
+        let latest_height = self.get_latest_block().unwrap_or_default();
 
         // Never roll back past the finality threshold
         let finality_threshold = latest_height - network_shared::FINALITY_CONFIRMATIONS + 1;

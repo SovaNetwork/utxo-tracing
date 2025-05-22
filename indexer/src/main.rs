@@ -131,7 +131,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let api_state = ApiState {
         watched_addresses: indexer.watched_addresses(),
-        network,
+        network: args.parse_network(),
         enclave_url,
         utxo_url,
         enclave_api_key,
