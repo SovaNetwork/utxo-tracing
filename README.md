@@ -68,10 +68,13 @@ docker-compose up -d
 | RPC_PORT | Bitcoin RPC port | 18443 |
 | RPC_USER | Bitcoin RPC username | user |
 | RPC_PASSWORD | Bitcoin RPC password | password |
+| NETWORK | Bitcoin network (mainnet, testnet, regtest, signet) | regtest |
 | SOCKET_PATH | Path to Unix socket | /tmp/network-utxos.sock |
 | START_HEIGHT | Block height to start from | 0 |
 | POLLING_RATE | Polling interval in milliseconds | 500 |
 | MAX_BLOCKS_PER_BATCH | Maximum blocks to process in a batch | 200 |
+| API_HOST | API server host | 0.0.0.0 |
+| API_PORT | API server port | 3031 |
 
 ### network-utxos
 
