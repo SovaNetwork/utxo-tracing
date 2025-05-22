@@ -114,7 +114,7 @@ impl BitcoinIndexer {
                     .rpc_client
                     .get_raw_transaction(&input.previous_output.txid, None)?;
                 let prev_output = &prev_tx.output[input.previous_output.vout as usize];
-                if let Some(address) = Address::from_script(&prev_output.script_pubkey, self.network) {
+                if let Ok(address) = Address::from_script(&prev_output.script_pubkey, self.network) {
                     let watch_set = self.watched_addresses.read().await;
                     if !watch_set.contains(&address) {
                         continue;
@@ -145,7 +145,7 @@ impl BitcoinIndexer {
 
             // Process new UTXOs (outputs)
             for (vout, output) in tx.output.iter().enumerate() {
-                if let Some(address) = Address::from_script(&output.script_pubkey, self.network) {
+                if let Ok(address) = Address::from_script(&output.script_pubkey, self.network) {
                     let watch_set = self.watched_addresses.read().await;
                     if !watch_set.contains(&address) {
                         continue;

@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use bitcoincore_rpc::bitcoin::Address;
+use bitcoincore_rpc::bitcoin::{address::NetworkUnchecked, Address};
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::RwLock;
@@ -27,7 +27,7 @@ pub async fn watch_address_handler(
     body: WatchAddressRequest,
     state: ApiState,
 ) -> Result<impl Reply, Infallible> {
-    match body.btc_address.parse::<Address>() {
+    match body.btc_address.parse::<Address<NetworkUnchecked>>() {
         Ok(addr) => {
             {
                 let mut set = state.watched_addresses.write().await;
@@ -48,7 +48,7 @@ pub async fn get_watch_address_handler(
     btc_address: String,
     state: ApiState,
 ) -> Result<impl Reply, Infallible> {
-    match btc_address.parse::<Address>() {
+    match btc_address.parse::<Address<NetworkUnchecked>>() {
         Ok(addr) => {
             let set = state.watched_addresses.read().await;
             let watched = set.contains(&addr);
