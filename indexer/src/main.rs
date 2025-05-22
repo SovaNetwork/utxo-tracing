@@ -51,6 +51,12 @@ pub struct Args {
         help = "Maximum blocks to process in a batch"
     )]
     pub max_blocks_per_batch: i32,
+
+    #[arg(long, default_value = "0.0.0.0", help = "API server host")]
+    pub api_host: String,
+
+    #[arg(long, default_value = "3031", help = "API server port")]
+    pub api_port: u16,
 }
 
 impl Args {
@@ -72,8 +78,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let args = Args::parse();
 
+    let network = args.parse_network();
     let mut indexer = BitcoinIndexer::new(
-        args.parse_network(),
+        network,
         &args.rpc_user,
         &args.rpc_password,
         &args.rpc_host,
@@ -85,11 +92,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let api_state = ApiState {
         watched_addresses: indexer.watched_addresses(),
+        network,
     };
 
     // Run HTTP server in background
+    let api_host = args.api_host.clone();
+    let api_port = args.api_port;
     task::spawn(async move {
-        run_server(api_state).await;
+        run_server(&api_host, api_port, api_state).await;
     });
 
     indexer

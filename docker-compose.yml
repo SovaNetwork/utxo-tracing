@@ -43,6 +43,8 @@ services:
       - START_HEIGHT=${INDEXER_START_BLOCK:-0}
       - POLLING_RATE=${INDEXER_POLLING_RATE:-500}
       - MAX_BLOCKS_PER_BATCH=${INDEXER_MAX_BLOCKS:-200}
+      - API_HOST=0.0.0.0
+      - API_PORT=3031
     networks:
       - bitcoin_network
     depends_on:
