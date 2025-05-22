@@ -9,7 +9,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  DOCKER_IMAGE_NAME: ghcr.io/sovanetwork/utxo-tracing
   DOCKER_USERNAME: ${{ github.actor }}
 
 jobs:
@@ -55,6 +54,10 @@ jobs:
       - name: Log in to Docker
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io --username ${DOCKER_USERNAME} --password-stdin
+      - name: Set IMAGE_PREFIX
+        run: echo "IMAGE_PREFIX=ghcr.io/${OWNER,,}" >> "$GITHUB_ENV"
+        env:
+          OWNER: ${{ github.repository_owner }}
       - name: Set up Docker builder
         run: |
           docker run --privileged --rm tonistiigi/binfmt --install arm64,amd64
