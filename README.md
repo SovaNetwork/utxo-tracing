@@ -2,7 +2,7 @@
 
 A high-performance Bitcoin UTXO indexer and database for tracking and querying UTXO data with blockchain reorganization handling.
 
-This service is used by [Sova validators](https://github.com/SovaNetwork/sova-reth) to get spendable utxos for network signing and other read operations.
+This service is used by [Sova validators](https://github.com/SovaNetwork/sova-reth) to obtain spendable UTXOs for network signing and other read operations.
 
 ## Overview
 
@@ -21,6 +21,8 @@ These services use a high-performance communication method via Unix sockets with
 - Processes blocks and tracks UTXO creation and spending
 - Sends updates to the UTXO database via Unix socket
 - Optimized for fast processing of blockchain data
+- Hosts an HTTP API for validators
+- Proxies transaction signing requests to the configured signing service
 
 ### storage
 - Stores UTXO data in SQLite or CSV (configurable)
@@ -34,13 +36,25 @@ These services use a high-performance communication method via Unix sockets with
 
 ## API Endpoints
 
-The UTXO database service provides these HTTP endpoints:
+### UTXO storage service
+
+The storage service provides the following HTTP endpoints:
 
 - `GET /latest-block`: Get the latest processed block height
 - `GET /block/{height}/txids`: Get transaction IDs in a specific block
 - `GET /utxos/block/{height}/address/{address}`: Get UTXOs for an address at a specific block height
 - `GET /spendable-utxos/block/{height}/address/{address}`: Get spendable UTXOs for an address at a specific block height
 - `GET /select-utxos/block/{height}/address/{address}/amount/{amount}`: Select UTXOs for a specified amount
+
+### Indexer service
+
+The indexer exposes an HTTP API used by validators:
+
+- `POST /watch-address` - add a Bitcoin address to the watch list
+- `GET /watch-address/{address}` - check if an address is watched
+- `POST /derive-address` - derive a Bitcoin address from an EVM address (forwarded to the signing service)
+- `POST /select-utxos` - select UTXOs across watched addresses for a target amount
+- `POST /sign-transaction` - proxy a signing request to the configured signing service
 
 *Note: querying data for blocks less than 6 blocks behind the chain tip are subject to change based on the reorg mechanics described below.*
 
@@ -75,9 +89,9 @@ docker-compose up -d
 | MAX_BLOCKS_PER_BATCH | Maximum blocks to process in a batch | 200 |
 | API_HOST | API server host | 0.0.0.0 |
 | API_PORT | API server port | 3031 |
-| ENCLAVE_URL | URL of the enclave service | - |
+| ENCLAVE_URL | URL of the signing service (enclave) | - |
 | UTXO_URL | URL of the UTXO database service | http://network-utxos:5557 |
-| ENCLAVE_API_KEY | API key for enclave requests | - |
+| ENCLAVE_API_KEY | API key sent when proxying signing requests | - |
 
 ### network-utxos
 
