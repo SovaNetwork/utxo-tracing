@@ -91,11 +91,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )?;
 
     let enclave_url = std::env::var("ENCLAVE_URL").expect("ENCLAVE_URL must be set");
+    let utxo_url = std::env::var("UTXO_URL").unwrap_or_else(|_| "http://network-utxos:5557".to_string());
+    let enclave_api_key = std::env::var("ENCLAVE_API_KEY").unwrap_or_default();
 
     let api_state = ApiState {
         watched_addresses: indexer.watched_addresses(),
         network,
         enclave_url,
+        utxo_url,
+        enclave_api_key,
     };
 
     // Run HTTP server in background

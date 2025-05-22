@@ -46,6 +46,8 @@ services:
       - API_HOST=0.0.0.0
       - API_PORT=3031
       - ENCLAVE_URL=http://enclave:5555
+      - UTXO_URL=http://network-utxos:5557
+      - ENCLAVE_API_KEY=
     networks:
       - bitcoin_network
     depends_on:
