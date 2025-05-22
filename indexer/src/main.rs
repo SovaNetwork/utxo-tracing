@@ -90,9 +90,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         args.max_blocks_per_batch,
     )?;
 
+    let enclave_url = std::env::var("ENCLAVE_URL").expect("ENCLAVE_URL must be set");
+
     let api_state = ApiState {
         watched_addresses: indexer.watched_addresses(),
         network,
+        enclave_url,
     };
 
     // Run HTTP server in background
