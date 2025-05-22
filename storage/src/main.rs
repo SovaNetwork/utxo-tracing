@@ -52,20 +52,20 @@ async fn main() -> std::io::Result<()> {
         Ok(ds) => ds,
         Err(e) => {
             error!("Failed to create datasource: {}", e);
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to create datasource: {}", e),
-            ));
+            return Err(std::io::Error::other(format!(
+                "Failed to create datasource: {}",
+                e
+            )));
         }
     };
 
     // Initialize datasource
     if let Err(e) = datasource.setup() {
         error!("Failed to setup datasource: {}", e);
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Failed to setup datasource: {}", e),
-        ));
+        return Err(std::io::Error::other(format!(
+            "Failed to setup datasource: {}",
+            e
+        )));
     }
 
     // Create database
