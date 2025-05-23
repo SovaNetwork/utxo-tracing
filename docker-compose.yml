@@ -1,5 +1,5 @@
 services:
-  bitcoin:
+  bitcoin-regtest:
     image: ruimarinho/bitcoin-core@sha256:79dd32455cf8c268c63e5d0114cc9882a8857e942b1d17a6b8ec40a6d44e3981 # ruimarinho/bitcoin-core:24
     command:
       - -regtest=1
@@ -35,7 +35,7 @@ services:
     environment:
       RUST_LOG: ${RUST_LOG:-info}
       NETWORK: ${NETWORK:-regtest}
-      RPC_HOST: ${RPC_HOST:-bitcoin}
+      RPC_HOST: ${RPC_HOST:-bitcoin-regtest}
       RPC_PORT: ${RPC_PORT:-18443}
       RPC_USER: ${RPC_USER:-user}
       RPC_PASSWORD: ${RPC_PASSWORD:-password}
@@ -54,7 +54,7 @@ services:
     networks:
       - bitcoin_network
     depends_on:
-      bitcoin:
+      bitcoin-regtest:
         condition: service_healthy
       network-utxos:
         condition: service_started
