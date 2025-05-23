@@ -131,12 +131,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         panic!("ENCLAVE_API_KEY must be set");
     }
 
+    let indexer_api_key = std::env::var("INDEXER_API_KEY").expect("INDEXER_API_KEY must be set");
+    if indexer_api_key.trim().is_empty() {
+        panic!("INDEXER_API_KEY must be set");
+    }
+
     let api_state = ApiState {
         watched_addresses: indexer.watched_addresses(),
         network: args.parse_network(),
         enclave_url,
         utxo_url,
         enclave_api_key,
+        indexer_api_key,
     };
 
     // Run HTTP server in background
