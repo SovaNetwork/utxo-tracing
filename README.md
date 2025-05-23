@@ -23,6 +23,7 @@ These services use a high-performance communication method via Unix sockets with
 - Optimized for fast processing of blockchain data
 - Hosts an HTTP API for validators
 - Proxies transaction signing requests to the configured signing service
+- Maintains a vector of watched Bitcoin addresses in memory used to filter incoming blocks
 
 ### storage
 - Stores UTXO data in SQLite or CSV (configurable)
@@ -57,6 +58,16 @@ The indexer exposes an HTTP API used by validators:
 - `POST /sign-transaction` - proxy a signing request to the configured signing service
 
 *Note: querying data for blocks less than 6 blocks behind the chain tip are subject to change based on the reorg mechanics described below.*
+
+### Indexer Address Filtering
+
+The indexer keeps a vector of watched Bitcoin addresses in memory. Every new
+block is scanned and only transactions touching these addresses are forwarded
+to the UTXO database. It is infeasible to pre-seed filters with all possible
+Ethereum addresses because there are 2^160 potential combinations. Instead, the
+`derive-address` endpoint automatically inserts the newly converted Bitcoin
+address into the in-memory list so it begins receiving UTXO updates
+immediately.
 
 ## Installation
 
