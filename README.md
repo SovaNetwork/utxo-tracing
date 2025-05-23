@@ -73,6 +73,8 @@ immediately.
 
 ### Using Docker Compose
 
+> NOTE: be sure to create your own .env file prior to running Docker here.
+
 ```bash
 # Clone the repository
 git clone https://github.com/SovaNetwork/utxo-tracing.git
