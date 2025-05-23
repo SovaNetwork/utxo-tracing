@@ -59,7 +59,7 @@ The indexer exposes an HTTP API used by validators:
 
 *Note: querying data for blocks less than 6 blocks behind the chain tip are subject to change based on the reorg mechanics described below.*
 
-### Address Filtering
+### Indexer Address Filtering
 
 The indexer keeps a vector of watched Bitcoin addresses in memory. Every new
 block is scanned and only transactions touching these addresses are forwarded
