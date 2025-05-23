@@ -111,9 +111,19 @@ pub async fn derive_address_handler(
 ) -> Result<impl Reply, Infallible> {
     let trimmed = req.evm_address.trim_start_matches("0x");
 
+    if state.enclave_api_key.trim().is_empty() {
+        error!("ENCLAVE_API_KEY not configured");
+        let resp = warp::reply::json(&json!({ "error": "ENCLAVE_API_KEY missing" }));
+        return Ok(warp::reply::with_status(
+            resp,
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ));
+    }
+
     let client = Client::new();
     let resp = client
         .post(format!("{}/derive_address", state.enclave_url))
+        .header("X-API-Key", state.enclave_api_key.clone())
         .json(&json!({ "evm_address": trimmed }))
         .send()
         .await;
@@ -230,11 +240,6 @@ pub async fn sign_transaction_handler(
         ));
     }
 
-    debug!(
-        "Forwarding signing request to enclave: {}",
-        state.enclave_url
-    );
-
     let client = Client::new();
     let resp = client
         .post(format!("{}/sign_transaction", state.enclave_url))
@@ -242,6 +247,8 @@ pub async fn sign_transaction_handler(
         .json(&req)
         .send()
         .await;
+
+    debug!("sign_transaction::response: {:?}", resp);
 
     match resp {
         Ok(r) if r.status().is_success() => match r.json::<SignTransactionResponse>().await {
