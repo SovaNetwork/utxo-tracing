@@ -81,6 +81,11 @@ fn validate_enclave_url(url_str: &str) -> Result<(), String> {
         return Ok(());
     }
 
+    // Allow Docker internal hostnames without dots (simple heuristic for compose service names)
+    if !host.contains('.') {
+        return Ok(());
+    }
+
     if let Ok(ip) = host.parse::<IpAddr>() {
         if ip.is_loopback() {
             return Ok(());
