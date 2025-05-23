@@ -50,7 +50,8 @@ ENV SOCKET_PATH="/tmp/network-utxos.sock" \
     API_PORT=3031 \
     ENCLAVE_URL="http://network-enclave:5555" \
     UTXO_URL="http://network-utxos:5557" \
-    ENCLAVE_API_KEY=""
+    ENCLAVE_API_KEY="" \
+    INDEXER_API_KEY=""
 
 # Use shell form to allow environment variable expansion
 CMD indexer \

@@ -17,6 +17,7 @@ pub struct ApiState {
     pub enclave_url: String,
     pub utxo_url: String,
     pub enclave_api_key: String,
+    pub indexer_api_key: String,
 }
 
 fn with_state(state: ApiState) -> impl Filter<Extract = (ApiState,), Error = Infallible> + Clone {
@@ -205,9 +206,15 @@ pub async fn select_utxos_handler(
 }
 
 pub async fn sign_transaction_handler(
+    api_key: String,
     req: SignTransactionRequest,
     state: ApiState,
 ) -> Result<impl Reply, Infallible> {
+    if api_key != state.indexer_api_key {
+        let resp = warp::reply::json(&json!({ "error": "Unauthorized" }));
+        return Ok(warp::reply::with_status(resp, StatusCode::UNAUTHORIZED));
+    }
+
     info!(
         "Signing transaction with {} inputs and {} outputs",
         req.inputs.len(),
@@ -310,6 +317,7 @@ pub async fn run_server(host: &str, port: u16, state: ApiState) {
 
     let sign_tx_route = warp::post()
         .and(warp::path("sign-transaction"))
+        .and(warp::header::<String>("x-api-key"))
         .and(warp::body::json())
         .and(with_state(state))
         .and_then(sign_transaction_handler);
