@@ -516,7 +516,8 @@ pub async fn prepare_transaction_handler(
         .get("selected_utxos")
         .cloned()
         .unwrap_or_else(|| json!([]));
-    let selected_utxos: Vec<network_shared::UtxoUpdate> = match serde_json::from_value(selected_val) {
+    let selected_utxos: Vec<network_shared::UtxoUpdate> = match serde_json::from_value(selected_val)
+    {
         Ok(list) => list,
         Err(e) => {
             error!("Failed to decode UTXO list: {}", e);
