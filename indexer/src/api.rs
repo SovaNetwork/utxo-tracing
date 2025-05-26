@@ -248,23 +248,22 @@ async fn fetch_selected_utxos(
         state.utxo_url, block_height, total_needed
     );
 
-    let utxo_resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| {
-            error!("Failed to query UTXOs: {}", e);
-            (json!({ "error": "Failed to query UTXOs" }), StatusCode::INTERNAL_SERVER_ERROR)
-        })?;
+    let utxo_resp = client.get(&url).send().await.map_err(|e| {
+        error!("Failed to query UTXOs: {}", e);
+        (
+            json!({ "error": "Failed to query UTXOs" }),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+    })?;
 
     let status = utxo_resp.status();
-    let value = utxo_resp
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|e| {
-            error!("Failed to parse UTXO response: {}", e);
-            (json!({ "error": "Invalid UTXO response" }), StatusCode::INTERNAL_SERVER_ERROR)
-        })?;
+    let value = utxo_resp.json::<serde_json::Value>().await.map_err(|e| {
+        error!("Failed to parse UTXO response: {}", e);
+        (
+            json!({ "error": "Invalid UTXO response" }),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+    })?;
 
     if !status.is_success() {
         let msg = value
@@ -281,7 +280,10 @@ async fn fetch_selected_utxos(
     let selected_utxos: Vec<network_shared::UtxoUpdate> = serde_json::from_value(selected_val)
         .map_err(|e| {
             error!("Failed to decode UTXO list: {}", e);
-            (json!({ "error": "Invalid UTXO data" }), StatusCode::INTERNAL_SERVER_ERROR)
+            (
+                json!({ "error": "Invalid UTXO data" }),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
         })?;
 
     Ok(selected_utxos)
@@ -293,22 +295,32 @@ fn build_unsigned_transaction(
     fee: i64,
     destination: &str,
     network: Network,
-) -> Result<(bitcoin::Transaction, i64), (serde_json::Value, StatusCode)> {
+) -> Result<(bitcoincore_rpc::bitcoin::Transaction, i64), (serde_json::Value, StatusCode)> {
     use bitcoincore_rpc::bitcoin::{self, OutPoint, Sequence, Transaction, TxIn, TxOut, Witness};
 
     let total_needed = amount + fee;
     let total_selected: i64 = selected_utxos.iter().map(|u| u.amount).sum();
     if total_selected < total_needed {
-        return Err((json!({ "error": "Insufficient funds" }), StatusCode::BAD_REQUEST));
+        return Err((
+            json!({ "error": "Insufficient funds" }),
+            StatusCode::BAD_REQUEST,
+        ));
     }
 
-    let dest_addr = parse_bitcoin_address(destination, network)
-        .map_err(|_| (json!({ "error": "Invalid destination" }), StatusCode::BAD_REQUEST))?;
+    let dest_addr = parse_bitcoin_address(destination, network).map_err(|_| {
+        (
+            json!({ "error": "Invalid destination" }),
+            StatusCode::BAD_REQUEST,
+        )
+    })?;
 
     let mut inputs = Vec::new();
     for utxo in selected_utxos {
         if let Ok(txid) = bitcoin::Txid::from_str(&utxo.txid) {
-            let outpoint = OutPoint { txid, vout: utxo.vout as u32 };
+            let outpoint = OutPoint {
+                txid,
+                vout: utxo.vout as u32,
+            };
             inputs.push(TxIn {
                 previous_output: outpoint,
                 script_sig: bitcoin::ScriptBuf::new(),
