@@ -2,12 +2,12 @@ use std::collections::HashSet;
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use bitcoincore_rpc::bitcoin::{address::NetworkUnchecked, Address, Network};
-use log::{debug, error, info};
+use bitcoincore_rpc::bitcoin::{address::NetworkUnchecked, Address, Amount, Network};
+use log::{error, info};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 use serde_json::json;
+use std::str::FromStr;
 use tokio::sync::RwLock;
 use warp::{http::StatusCode, Filter, Reply};
 
@@ -239,7 +239,10 @@ pub async fn sign_transaction_handler(
     if state.enclave_api_key.trim().is_empty() {
         error!("ENCLAVE_API_KEY not configured");
         let resp = warp::reply::json(&json!({ "error": "ENCLAVE_API_KEY missing" }));
-        return Ok(warp::reply::with_status(resp, StatusCode::INTERNAL_SERVER_ERROR));
+        return Ok(warp::reply::with_status(
+            resp,
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ));
     }
 
     let total_needed = req.amount + req.fee;
@@ -254,7 +257,10 @@ pub async fn sign_transaction_handler(
         Err(e) => {
             error!("Failed to query UTXOs: {}", e);
             let resp = warp::reply::json(&json!({ "error": "Failed to query UTXOs" }));
-            return Ok(warp::reply::with_status(resp, StatusCode::INTERNAL_SERVER_ERROR));
+            return Ok(warp::reply::with_status(
+                resp,
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ));
         }
     };
 
@@ -264,7 +270,10 @@ pub async fn sign_transaction_handler(
         Err(e) => {
             error!("Failed to parse UTXO response: {}", e);
             let resp = warp::reply::json(&json!({ "error": "Invalid UTXO response" }));
-            return Ok(warp::reply::with_status(resp, StatusCode::INTERNAL_SERVER_ERROR));
+            return Ok(warp::reply::with_status(
+                resp,
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ));
         }
     };
 
@@ -283,12 +292,16 @@ pub async fn sign_transaction_handler(
         .get("selected_utxos")
         .cloned()
         .unwrap_or_else(|| json!([]));
-    let selected_utxos: Vec<network_shared::UtxoUpdate> = match serde_json::from_value(selected_val) {
+    let selected_utxos: Vec<network_shared::UtxoUpdate> = match serde_json::from_value(selected_val)
+    {
         Ok(list) => list,
         Err(e) => {
             error!("Failed to decode UTXO list: {}", e);
             let resp = warp::reply::json(&json!({ "error": "Invalid UTXO data" }));
-            return Ok(warp::reply::with_status(resp, StatusCode::INTERNAL_SERVER_ERROR));
+            return Ok(warp::reply::with_status(
+                resp,
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ));
         }
     };
 
@@ -316,7 +329,10 @@ pub async fn sign_transaction_handler(
     let mut inputs = Vec::new();
     for utxo in &selected_utxos {
         if let Ok(txid) = bitcoin::Txid::from_str(&utxo.txid) {
-            let outpoint = OutPoint { txid, vout: utxo.vout as u32 };
+            let outpoint = OutPoint {
+                txid,
+                vout: utxo.vout as u32,
+            };
             inputs.push(TxIn {
                 previous_output: outpoint,
                 script_sig: bitcoin::ScriptBuf::new(),
@@ -328,7 +344,7 @@ pub async fn sign_transaction_handler(
 
     let mut outputs = Vec::new();
     outputs.push(TxOut {
-        value: req.amount as u64,
+        value: Amount::from_sat(req.amount as u64),
         script_pubkey: dest_addr.script_pubkey(),
     });
 
@@ -337,7 +353,7 @@ pub async fn sign_transaction_handler(
         if let Some(first) = selected_utxos.first() {
             if let Ok(change_addr) = parse_bitcoin_address(&first.address, state.network) {
                 outputs.push(TxOut {
-                    value: change as u64,
+                    value: Amount::from_sat(change as u64),
                     script_pubkey: change_addr.script_pubkey(),
                 });
             }
@@ -345,8 +361,8 @@ pub async fn sign_transaction_handler(
     }
 
     let unsigned_tx = Transaction {
-        version: 2,
-        lock_time: bitcoin::PackedLockTime::ZERO,
+        version: bitcoin::transaction::Version::TWO,
+        lock_time: bitcoin::locktime::absolute::LockTime::ZERO,
         input: inputs.clone(),
         output: outputs.clone(),
     };
@@ -355,12 +371,14 @@ pub async fn sign_transaction_handler(
 
     let enc_inputs: Vec<_> = selected_utxos
         .iter()
-        .map(|u| json!({
-            "txid": u.txid,
-            "vout": u.vout,
-            "amount": u.amount,
-            "address": u.address
-        }))
+        .map(|u| {
+            json!({
+                "txid": u.txid,
+                "vout": u.vout,
+                "amount": u.amount,
+                "address": u.address
+            })
+        })
         .collect();
     let mut enc_outputs = vec![json!({
         "address": req.destination,
@@ -388,16 +406,28 @@ pub async fn sign_transaction_handler(
                 if hex::decode(&val.signed_tx).is_err() {
                     error!("Enclave returned invalid hex");
                     let resp = warp::reply::json(&json!({ "error": "Invalid response" }));
-                    return Ok(warp::reply::with_status(resp, StatusCode::INTERNAL_SERVER_ERROR));
+                    return Ok(warp::reply::with_status(
+                        resp,
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                    ));
                 }
                 info!("Successfully signed transaction");
-                let reply = SignTransactionResponse { signed_tx: val.signed_tx, txid };
-                Ok(warp::reply::with_status(warp::reply::json(&reply), StatusCode::OK))
+                let reply = SignTransactionResponse {
+                    signed_tx: val.signed_tx,
+                    txid,
+                };
+                Ok(warp::reply::with_status(
+                    warp::reply::json(&reply),
+                    StatusCode::OK,
+                ))
             }
             Err(e) => {
                 error!("Failed to parse enclave response: {:?}", e);
                 let resp = warp::reply::json(&json!({ "error": "Invalid response" }));
-                Ok(warp::reply::with_status(resp, StatusCode::INTERNAL_SERVER_ERROR))
+                Ok(warp::reply::with_status(
+                    resp,
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                ))
             }
         },
         Ok(r) => {
@@ -412,7 +442,10 @@ pub async fn sign_transaction_handler(
         Err(e) => {
             error!("Failed to contact enclave: {}", e);
             let resp = warp::reply::json(&json!({ "error": "Failed to contact enclave" }));
-            Ok(warp::reply::with_status(resp, StatusCode::INTERNAL_SERVER_ERROR))
+            Ok(warp::reply::with_status(
+                resp,
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ))
         }
     }
 }

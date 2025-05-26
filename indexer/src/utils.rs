@@ -7,9 +7,9 @@ pub fn determine_script_type(script: ScriptBuf) -> String {
         "P2PKH".to_string()
     } else if script.is_p2sh() {
         "P2SH".to_string()
-    } else if script.is_v0_p2wpkh() {
+    } else if script.is_p2wpkh() {
         "P2WPKH".to_string()
-    } else if script.is_v0_p2wsh() {
+    } else if script.is_p2wsh() {
         "P2WSH".to_string()
     } else if script.is_op_return() {
         "OP_RETURN".to_string()

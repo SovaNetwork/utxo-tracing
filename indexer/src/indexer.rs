@@ -133,7 +133,7 @@ impl BitcoinIndexer {
                         public_key: extract_public_key(&input.witness),
                         txid: input.previous_output.txid.to_string(),
                         vout: input.previous_output.vout as i32,
-                        amount: prev_output.value as i64,
+                        amount: prev_output.value.to_sat() as i64,
                         script_pub_key: hex::encode(prev_output.script_pubkey.as_bytes()),
                         script_type: determine_script_type(prev_output.script_pubkey.clone()),
                         created_at: block_time,
@@ -162,7 +162,7 @@ impl BitcoinIndexer {
                         public_key: None, // Will be filled when the UTXO is spent
                         txid: tx.txid().to_string(),
                         vout: vout as i32,
-                        amount: output.value as i64,
+                        amount: output.value.to_sat() as i64,
                         script_pub_key: hex::encode(output.script_pubkey.as_bytes()),
                         script_type,
                         created_at: block_time,
