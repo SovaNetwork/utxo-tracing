@@ -60,6 +60,19 @@ pub struct SignTransactionResponse {
     pub txid: String,
 }
 
+#[derive(Deserialize, Serialize)]
+pub struct PrepareTransactionRequest {
+    pub block_height: i32,
+    pub amount: i64,
+    pub destination: String,
+    pub fee: i64,
+}
+
+#[derive(Serialize)]
+pub struct PrepareTransactionResponse {
+    pub txid: String,
+}
+
 #[derive(Deserialize)]
 struct EnclaveSignResponse {
     pub signed_tx: String,
@@ -450,6 +463,141 @@ pub async fn sign_transaction_handler(
     }
 }
 
+pub async fn prepare_transaction_handler(
+    req: PrepareTransactionRequest,
+    state: ApiState,
+) -> Result<impl Reply, Infallible> {
+    use bitcoincore_rpc::bitcoin::{self, OutPoint, Sequence, Transaction, TxIn, TxOut, Witness};
+
+    let total_needed = req.amount + req.fee;
+    let client = Client::new();
+    let url = format!(
+        "{}/select-utxos/block/{}/amount/{}",
+        state.utxo_url, req.block_height, total_needed
+    );
+
+    let utxo_resp = match client.get(&url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            error!("Failed to query UTXOs: {}", e);
+            let resp = warp::reply::json(&json!({ "error": "Failed to query UTXOs" }));
+            return Ok(warp::reply::with_status(
+                resp,
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ));
+        }
+    };
+
+    let status = utxo_resp.status();
+    let value = match utxo_resp.json::<serde_json::Value>().await {
+        Ok(v) => v,
+        Err(e) => {
+            error!("Failed to parse UTXO response: {}", e);
+            let resp = warp::reply::json(&json!({ "error": "Invalid UTXO response" }));
+            return Ok(warp::reply::with_status(
+                resp,
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ));
+        }
+    };
+
+    if !status.is_success() {
+        let msg = value
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Failed to select UTXOs");
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&json!({ "error": msg })),
+            status,
+        ));
+    }
+
+    let selected_val = value
+        .get("selected_utxos")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    let selected_utxos: Vec<network_shared::UtxoUpdate> = match serde_json::from_value(selected_val) {
+        Ok(list) => list,
+        Err(e) => {
+            error!("Failed to decode UTXO list: {}", e);
+            let resp = warp::reply::json(&json!({ "error": "Invalid UTXO data" }));
+            return Ok(warp::reply::with_status(
+                resp,
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ));
+        }
+    };
+
+    let total_selected: i64 = selected_utxos.iter().map(|u| u.amount).sum();
+    if total_selected < total_needed {
+        let resp = warp::reply::json(&json!({ "error": "Insufficient funds" }));
+        return Ok(warp::reply::with_status(resp, StatusCode::BAD_REQUEST));
+    }
+
+    info!(
+        "Building transaction to {} for {} sats using {} UTXOs",
+        req.destination,
+        req.amount,
+        selected_utxos.len()
+    );
+
+    let dest_addr = match parse_bitcoin_address(&req.destination, state.network) {
+        Ok(a) => a,
+        Err(_) => {
+            let resp = warp::reply::json(&json!({ "error": "Invalid destination" }));
+            return Ok(warp::reply::with_status(resp, StatusCode::BAD_REQUEST));
+        }
+    };
+
+    let mut inputs = Vec::new();
+    for utxo in &selected_utxos {
+        if let Ok(txid) = bitcoin::Txid::from_str(&utxo.txid) {
+            let outpoint = OutPoint {
+                txid,
+                vout: utxo.vout as u32,
+            };
+            inputs.push(TxIn {
+                previous_output: outpoint,
+                script_sig: bitcoin::ScriptBuf::new(),
+                sequence: Sequence::MAX,
+                witness: Witness::new(),
+            });
+        }
+    }
+
+    let mut outputs = Vec::new();
+    outputs.push(TxOut {
+        value: Amount::from_sat(req.amount as u64),
+        script_pubkey: dest_addr.script_pubkey(),
+    });
+
+    let change = total_selected - total_needed;
+    if change > 0 {
+        if let Some(first) = selected_utxos.first() {
+            if let Ok(change_addr) = parse_bitcoin_address(&first.address, state.network) {
+                outputs.push(TxOut {
+                    value: Amount::from_sat(change as u64),
+                    script_pubkey: change_addr.script_pubkey(),
+                });
+            }
+        }
+    }
+
+    let unsigned_tx = Transaction {
+        version: bitcoin::transaction::Version::TWO,
+        lock_time: bitcoin::locktime::absolute::LockTime::ZERO,
+        input: inputs,
+        output: outputs,
+    };
+
+    let txid = unsigned_tx.txid().to_string();
+
+    Ok(warp::reply::with_status(
+        warp::reply::json(&PrepareTransactionResponse { txid }),
+        StatusCode::OK,
+    ))
+}
+
 pub async fn run_server(host: &str, port: u16, state: ApiState) {
     let post_route = warp::post()
         .and(warp::path("watch-address"))
@@ -475,6 +623,12 @@ pub async fn run_server(host: &str, port: u16, state: ApiState) {
         .and(with_state(state.clone()))
         .and_then(select_utxos_handler);
 
+    let prepare_tx_route = warp::post()
+        .and(warp::path("prepare-transaction"))
+        .and(warp::body::json())
+        .and(with_state(state.clone()))
+        .and_then(prepare_transaction_handler);
+
     let sign_tx_route = warp::post()
         .and(warp::path("sign-transaction"))
         .and(warp::header::<String>("x-api-key"))
@@ -486,6 +640,7 @@ pub async fn run_server(host: &str, port: u16, state: ApiState) {
         .or(get_route)
         .or(derive_address_route)
         .or(select_utxos_route)
+        .or(prepare_tx_route)
         .or(sign_tx_route);
 
     let addr: std::net::IpAddr = host.parse().unwrap_or_else(|_| "0.0.0.0".parse().unwrap());
