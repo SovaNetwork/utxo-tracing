@@ -138,16 +138,9 @@ impl Datasource for UtxoSqliteDatasource {
             .map_err(|e| StorageError::DatabaseConnectionFailed(e.to_string()))?;
 
         let query = "
-            SELECT MAX(
-                CASE
-                    WHEN spent_block IS NOT NULL AND spent_block > block_height THEN spent_block
-                    ELSE block_height
-                END
-            ) AS latest_block
-            FROM utxo;
+            SELECT MAX(height) FROM blocks WHERE is_main_chain = 1;
         ";
 
-        // Handle the case where there are no UTXOs yet
         let result = conn
             .query_row(query, [], |row| row.get::<_, Option<i32>>(0))
             .map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
