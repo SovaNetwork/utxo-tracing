@@ -3,7 +3,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use bitcoincore_rpc::bitcoin::{address::NetworkUnchecked, Address, Amount, Network};
-use log::{error, info};
+use log::{debug, error, info};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -242,51 +242,82 @@ async fn fetch_selected_utxos(
     block_height: i32,
     total_needed: i64,
 ) -> Result<Vec<network_shared::UtxoUpdate>, (serde_json::Value, StatusCode)> {
-    let client = Client::new();
-    let url = format!(
-        "{}/select-utxos/block/{}/amount/{}",
-        state.utxo_url, block_height, total_needed
-    );
+    let client = reqwest::Client::new();
+    let mut selected_utxos = Vec::new();
+    let mut total_selected = 0;
 
-    let utxo_resp = client.get(&url).send().await.map_err(|e| {
-        error!("Failed to query UTXOs: {}", e);
-        (
-            json!({ "error": "Failed to query UTXOs" }),
-            StatusCode::INTERNAL_SERVER_ERROR,
-        )
-    })?;
+    // Acquire read lock on watched addresses
+    let watched_addresses = state.watched_addresses.read().await;
 
-    let status = utxo_resp.status();
-    let value = utxo_resp.json::<serde_json::Value>().await.map_err(|e| {
-        error!("Failed to parse UTXO response: {}", e);
-        (
-            json!({ "error": "Invalid UTXO response" }),
-            StatusCode::INTERNAL_SERVER_ERROR,
-        )
-    })?;
+    // Loop over each address and attempt to gather enough UTXOs
+    for addr in watched_addresses.iter() {
+        let url = format!(
+            "{}/select-utxos/block/{}/address/{}/amount/{}",
+            state.utxo_url,
+            block_height,
+            addr,
+            total_needed - total_selected
+        );
 
-    if !status.is_success() {
-        let msg = value
-            .get("error")
-            .and_then(|v| v.as_str())
-            .unwrap_or("Failed to select UTXOs");
-        return Err((json!({ "error": msg }), status));
-    }
-
-    let selected_val = value
-        .get("selected_utxos")
-        .cloned()
-        .unwrap_or_else(|| json!([]));
-    let selected_utxos: Vec<network_shared::UtxoUpdate> = serde_json::from_value(selected_val)
-        .map_err(|e| {
-            error!("Failed to decode UTXO list: {}", e);
+        let resp = client.get(&url).send().await.map_err(|e| {
+            error!("Failed to request UTXOs: {}", e);
             (
-                json!({ "error": "Invalid UTXO data" }),
+                json!({ "error": "Failed to fetch UTXOs" }),
                 StatusCode::INTERNAL_SERVER_ERROR,
             )
         })?;
 
-    Ok(selected_utxos)
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let err_text = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            error!("UTXO service error (status {}): {}", status, err_text);
+            return Err((
+                json!({ "error": format!("UTXO service error: {}", err_text) }),
+                StatusCode::BAD_GATEWAY,
+            ));
+        }
+
+        let value = resp.json::<serde_json::Value>().await.map_err(|e| {
+            error!("Failed to parse UTXO response: {}", e);
+            (
+                json!({ "error": "Invalid UTXO response" }),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
+
+        let utxos: Vec<network_shared::UtxoUpdate> =
+            serde_json::from_value(value.get("selected_utxos").cloned().unwrap_or_default())
+                .map_err(|e| {
+                    error!("UTXO JSON structure incorrect: {}", e);
+                    (
+                        json!({ "error": "Malformed UTXO data" }),
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                    )
+                })?;
+
+        for utxo in utxos {
+            total_selected += utxo.amount;
+            selected_utxos.push(utxo);
+
+            if total_selected >= total_needed {
+                debug!("Collected sufficient UTXOs: {}", total_selected);
+                return Ok(selected_utxos);
+            }
+        }
+    }
+
+    // If we reach here, we couldn't gather enough UTXOs
+    error!(
+        "Insufficient UTXOs: Needed {}, got {}",
+        total_needed, total_selected
+    );
+    Err((
+        json!({ "error": "Insufficient funds across watched addresses" }),
+        StatusCode::BAD_REQUEST,
+    ))
 }
 
 fn build_unsigned_transaction(
@@ -378,12 +409,13 @@ pub async fn sign_transaction_handler(
     }
 
     let total_needed = req.amount + req.fee;
-    let selected_utxos = match fetch_selected_utxos(&state, req.block_height, total_needed).await {
-        Ok(list) => list,
-        Err((msg, status)) => {
-            return Ok(warp::reply::with_status(warp::reply::json(&msg), status));
-        }
-    };
+    let selected_utxos: Vec<network_shared::UtxoUpdate> =
+        match fetch_selected_utxos(&state, req.block_height, total_needed).await {
+            Ok(list) => list,
+            Err((msg, status)) => {
+                return Ok(warp::reply::with_status(warp::reply::json(&msg), status));
+            }
+        };
 
     info!(
         "Building transaction to {} for {} sats using {} UTXOs",

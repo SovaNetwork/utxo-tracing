@@ -2,13 +2,13 @@ services:
   bitcoin-regtest:
     image: ruimarinho/bitcoin-core@sha256:79dd32455cf8c268c63e5d0114cc9882a8857e942b1d17a6b8ec40a6d44e3981 # ruimarinho/bitcoin-core:24
     command:
-      - -regtest=1
-      - -server=1
-      - -txindex=1
-      - -rpcallowip=0.0.0.0/0
-      - -rpcbind=0.0.0.0
-      - -rpcuser=user
-      - -rpcpassword=password
+      -regtest=1
+      -server=1
+      -txindex=1
+      -rpcallowip=0.0.0.0/0
+      -rpcbind=0.0.0.0
+      -rpcuser=user
+      -rpcpassword=password
     ports:
       - "18443:18443"
     volumes:
@@ -27,28 +27,28 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-
+  
   network-indexer:
     build:
       context: .
       dockerfile: ./indexer/Dockerfile
     environment:
-      RUST_LOG: ${RUST_LOG:-info}
-      NETWORK: ${NETWORK:-regtest}
-      RPC_HOST: ${RPC_HOST:-bitcoin-regtest}
-      RPC_PORT: ${RPC_PORT:-18443}
-      RPC_USER: ${RPC_USER:-user}
-      RPC_PASSWORD: ${RPC_PASSWORD:-password}
-      SOCKET_PATH: ${SOCKET_PATH:-/tmp/network-utxos.sock}
-      START_HEIGHT: ${INDEXER_START_BLOCK:-0}
-      POLLING_RATE: ${INDEXER_POLLING_RATE:-500}
-      MAX_BLOCKS_PER_BATCH: ${INDEXER_MAX_BLOCKS:-200}
-      API_HOST: ${API_HOST:-0.0.0.0}
-      API_PORT: ${API_PORT:-3031}
-      ENCLAVE_URL: ${ENCLAVE_URL:-http://enclave:5555}
-      UTXO_URL: ${UTXO_URL:-http://network-utxos:5557}
-      ENCLAVE_API_KEY: ${ENCLAVE_API_KEY:-}
-      INDEXER_API_KEY: ${INDEXER_API_KEY:-}
+      - RUST_LOG=${RUST_LOG:-info}
+      - NETWORK=${NETWORK:-regtest}
+      - RPC_HOST=bitcoin-regtest
+      - RPC_PORT=${RPC_PORT:-18443}
+      - RPC_USER=${RPC_USER:-user}
+      - RPC_PASSWORD=${RPC_PASSWORD:-password}
+      - SOCKET_PATH=${SOCKET_PATH:-/tmp/network-utxos.sock}
+      - START_HEIGHT=${INDEXER_START_BLOCK:-0}
+      - POLLING_RATE=${INDEXER_POLLING_RATE:-500}
+      - MAX_BLOCKS_PER_BATCH=${INDEXER_MAX_BLOCKS:-200}
+      - API_HOST=${API_HOST:-0.0.0.0}
+      - API_PORT=${API_PORT:-3031}
+      - ENCLAVE_URL=http://network-enclave:5555
+      - UTXO_URL=http://network-utxos:5557
+      - ENCLAVE_API_KEY=${ENCLAVE_SHARED_API_KEY:-}
+      - INDEXER_API_KEY=${INDEXER_SHARED_API_KEY:-}
     ports:
       - "3031:3031"
     networks:
@@ -66,12 +66,12 @@ services:
       context: .
       dockerfile: ./storage/Dockerfile
     environment:
-      RUST_LOG: ${RUST_LOG:-info}
-      HOST: ${UTXO_HOST:-0.0.0.0}
-      PORT: ${UTXO_PORT:-5557}
-      LOG_LEVEL: ${UTXO_LOG_LEVEL:-info}
-      DATASOURCE: ${UTXO_DATASOURCE:-sqlite}
-      SOCKET_PATH: ${SOCKET_PATH:-/tmp/network-utxos.sock}
+      - RUST_LOG=${RUST_LOG:-info}
+      - HOST=${UTXO_HOST:-0.0.0.0}
+      - PORT=${UTXO_PORT:-5557}
+      - LOG_LEVEL=${UTXO_LOG_LEVEL:-info}
+      - DATASOURCE=${UTXO_DATASOURCE:-sqlite}
+      - SOCKET_PATH=${SOCKET_PATH:-/tmp/network-utxos.sock}
     ports:
       - "5557:5557"
     networks:
