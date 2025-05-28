@@ -115,6 +115,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let args = Args::parse();
 
+    let utxo_url =
+        std::env::var("UTXO_URL").unwrap_or_else(|_| "http://network-utxos:5557".to_string());
+
     let config = IndexerConfig {
         network: args.parse_network(),
         rpc_user: args.rpc_user.clone(),
@@ -124,13 +127,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         socket_path: args.socket_path.clone(),
         start_height: args.start_height,
         max_blocks_per_batch: args.max_blocks_per_batch,
+        utxo_url: utxo_url.clone(),
     };
     let mut indexer = BitcoinIndexer::new(config)?;
 
     let enclave_url = std::env::var("ENCLAVE_URL").expect("ENCLAVE_URL must be set");
     validate_enclave_url(&enclave_url).expect("Invalid ENCLAVE_URL");
-    let utxo_url =
-        std::env::var("UTXO_URL").unwrap_or_else(|_| "http://network-utxos:5557".to_string());
     let enclave_api_key = std::env::var("ENCLAVE_API_KEY").expect("ENCLAVE_API_KEY must be set");
     if enclave_api_key.trim().is_empty() {
         panic!("ENCLAVE_API_KEY must be set");

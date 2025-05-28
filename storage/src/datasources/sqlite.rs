@@ -3,7 +3,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use rusqlite_migration::{Migrations, M};
 
 use network_shared::UtxoUpdate;
@@ -555,5 +555,50 @@ impl Datasource for UtxoSqliteDatasource {
         })?;
 
         Ok(())
+    }
+
+    fn get_utxo_by_outpoint(&self, txid: &str, vout: i32) -> StorageResult<Option<UtxoUpdate>> {
+        let conn = self
+            .conn
+            .get()
+            .map_err(|e| StorageError::DatabaseConnectionFailed(e.to_string()))?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, address, public_key, txid, vout, amount, script_pub_key, script_type, created_at, block_height, spent_txid, spent_at, spent_block FROM utxo WHERE txid = ?1 AND vout = ?2 LIMIT 1",
+            )
+            .map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
+
+        let result = stmt
+            .query_row(params![txid, vout], |row| {
+                let created_at: String = row.get(8)?;
+                let created_at_parsed = DateTime::parse_from_rfc3339(&created_at)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?
+                    .with_timezone(&Utc);
+
+                Ok(UtxoUpdate {
+                    id: row.get(0)?,
+                    address: row.get(1)?,
+                    public_key: row.get(2)?,
+                    txid: row.get(3)?,
+                    vout: row.get(4)?,
+                    amount: row.get(5)?,
+                    script_pub_key: row.get(6)?,
+                    script_type: row.get(7)?,
+                    created_at: created_at_parsed,
+                    block_height: row.get(9)?,
+                    spent_txid: row.get(10)?,
+                    spent_at: row.get::<_, Option<String>>(11)?.map(|s| {
+                        DateTime::parse_from_rfc3339(&s)
+                            .unwrap()
+                            .with_timezone(&Utc)
+                    }),
+                    spent_block: row.get(12)?,
+                })
+            })
+            .optional()
+            .map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
+
+        Ok(result)
     }
 }
