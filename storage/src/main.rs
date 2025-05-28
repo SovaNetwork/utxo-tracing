@@ -6,6 +6,7 @@ mod network;
 
 use actix_web::{middleware::Logger, web, App, HttpServer};
 use clap::Parser;
+use bitcoin::Network;
 use tracing::{error, info};
 
 use database::UtxoDatabase;
@@ -34,6 +35,23 @@ struct Args {
     /// Socket path for receiving updates
     #[arg(long, default_value = "/tmp/network-utxos.sock")]
     socket_path: String,
+
+    /// Bitcoin network (mainnet, testnet, regtest, signet)
+    #[arg(long, default_value = "regtest")]
+    network: String,
+}
+
+impl Args {
+    /// Parse the network string into a [`Network`] enum
+    fn parse_network(&self) -> Network {
+        match self.network.to_lowercase().as_str() {
+            "mainnet" | "bitcoin" => Network::Bitcoin,
+            "testnet" => Network::Testnet,
+            "regtest" => Network::Regtest,
+            "signet" => Network::Signet,
+            other => panic!("Unsupported network: {}", other),
+        }
+    }
 }
 
 #[actix_web::main]
@@ -70,7 +88,13 @@ async fn main() -> std::io::Result<()> {
 
     // Create database
     let db = UtxoDatabase::new(datasource);
-    let state = web::Data::new(AppState { db: db.clone() });
+
+    // Determine the Bitcoin network this instance should operate on
+    let network = args.parse_network();
+    let state = web::Data::new(AppState {
+        db: db.clone(),
+        network,
+    });
 
     // Run Unix socket server in the background
     let socket_path = args.socket_path.clone();
