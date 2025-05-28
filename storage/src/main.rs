@@ -5,8 +5,8 @@ mod models;
 mod network;
 
 use actix_web::{middleware::Logger, web, App, HttpServer};
-use clap::Parser;
 use bitcoin::Network;
+use clap::Parser;
 use tracing::{error, info};
 
 use database::UtxoDatabase;

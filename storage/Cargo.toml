@@ -8,6 +8,7 @@ network-shared = { path = "../network-shared" }
 
 actix-web = "4.9.0"
 bincode.workspace = true
+bitcoin.workspace = true
 chrono.workspace = true
 clap.workspace = true
 csv = "1.3.1"

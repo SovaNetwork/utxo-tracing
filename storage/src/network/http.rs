@@ -9,29 +9,12 @@ use std::str::FromStr;
 use super::AppState;
 use crate::error::StorageError;
 
-/// Parse a Bitcoin address and ensure it matches the expected network.
-///
-/// This function returns the parsed [`Address`] on success.  On failure it
-/// returns a human readable error explaining whether the address was malformed
-/// or belonged to the wrong network.  The returned string can be sent directly
-/// to API clients.
 fn parse_bitcoin_address(address: &str, expected_network: Network) -> Result<Address, String> {
-    match Address::from_str(address) {
-        // Address parsed correctly
-        Ok(addr) => {
-            if addr.network == expected_network {
-                Ok(addr)
-            } else {
-                // The address is valid but for a different Bitcoin network
-                Err(format!(
-                    "Address network mismatch: expected {:?}, got {:?}",
-                    expected_network, addr.network
-                ))
-            }
-        }
-        // The string was not a valid Bitcoin address
-        Err(e) => Err(format!("Invalid Bitcoin address format: {e}")),
-    }
+    let addr =
+        Address::from_str(address).map_err(|e| format!("Invalid Bitcoin address format: {}", e))?;
+
+    addr.require_network(expected_network)
+        .map_err(|e| format!("Bitcoin address network mismatch: {}", e))
 }
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
