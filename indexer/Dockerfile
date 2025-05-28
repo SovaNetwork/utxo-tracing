@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.81-slim-bookworm AS builder
+FROM rust:1.87-slim-bookworm AS builder
 
 # Create a new empty shell project
 WORKDIR /usr/src/app
@@ -28,6 +28,7 @@ RUN apt-get update && \
 
 # Copy the binary from builder
 COPY --from=builder /usr/src/app/target/release/indexer /usr/local/bin/
+RUN chmod +x /usr/local/bin/indexer
 
 # Create a non-root user with specific UID
 RUN useradd -m -u 1001 service

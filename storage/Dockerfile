@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.81-slim-bookworm as builder
+FROM rust:1.87-slim-bookworm AS builder
 
 # Create a new empty shell project
 WORKDIR /usr/src/app
@@ -9,6 +9,7 @@ RUN apt-get update && \
     apt-get install -y \
     pkg-config \
     libssl-dev \
+    clang \
     libsqlite3-dev && \
     rm -rf /var/lib/apt/lists/*
 
@@ -30,6 +31,8 @@ RUN apt-get update && \
 
 # Copy the binary from builder
 COPY --from=builder /usr/src/app/target/release/storage /usr/local/bin/
+RUN chmod +x /usr/local/bin/storage
+
 
 # Create a non-root user with specific UID and create data directory
 RUN useradd -m -u 1001 service && \

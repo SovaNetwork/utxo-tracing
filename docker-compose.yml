@@ -14,7 +14,7 @@ services:
     volumes:
       - bitcoin-data:/data
     networks:
-      - bitcoin_network
+      - sova-devnet_sova_network
     healthcheck:
       test: [
         "CMD",
@@ -52,7 +52,7 @@ services:
     ports:
       - "3031:3031"
     networks:
-      - bitcoin_network
+      - sova-devnet_sova_network
     depends_on:
       bitcoin-regtest:
         condition: service_healthy
@@ -76,13 +76,17 @@ services:
     ports:
       - "5557:5557"
     networks:
-      - bitcoin_network
+      - sova-devnet_sova_network
     volumes:
       - utxo-data:/data
       - socket:/tmp
 
+# NOTE: This is intended to be used with the running-sova docker compose.
+# Ensure you are running the sova-devnet docker compose with the sova_network network.
+# Once that is running turn off these services and run this docker compose.
 networks:
-  bitcoin_network:
+  sova-devnet_sova_network:
+    external: true
 
 volumes:
   bitcoin-data:
