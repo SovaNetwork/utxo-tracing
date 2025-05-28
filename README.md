@@ -47,6 +47,9 @@ The storage service provides the following HTTP endpoints:
 - `GET /spendable-utxos/block/{height}/address/{address}`: Get spendable UTXOs for an address at a specific block height
 - `GET /select-utxos/block/{height}/address/{address}/amount/{amount}`: Select UTXOs for a specified amount
 
+All endpoints that include an `address` path parameter validate the value as a
+Bitcoin address and return `400 Bad Request` when parsing fails.
+
 ### Indexer service
 
 The indexer exposes an HTTP API used by validators:

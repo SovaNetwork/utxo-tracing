@@ -1,10 +1,16 @@
 use actix_web::{web, HttpResponse};
+use bitcoin::Address;
+use std::str::FromStr;
 use serde_json::json;
 use tracing::log::error;
 use tracing::{info, instrument};
 
 use super::AppState;
 use crate::error::StorageError;
+
+fn parse_bitcoin_address(addr: &str) -> Result<Address, String> {
+    Address::from_str(addr).map_err(|e| format!("Address parse error: {:?}", e))
+}
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.route("/latest-block", web::get().to(get_latest_block))
@@ -113,9 +119,9 @@ async fn get_block_address_utxos(
         }));
     }
 
-    if address.is_empty() {
+    if parse_bitcoin_address(&address).is_err() {
         return HttpResponse::BadRequest().json(json!({
-            "error": "Address cannot be empty"
+            "error": "Invalid BTC address"
         }));
     }
 
@@ -189,9 +195,9 @@ async fn get_spendable_utxos(
         }));
     }
 
-    if address.is_empty() {
+    if parse_bitcoin_address(&address).is_err() {
         return HttpResponse::BadRequest().json(json!({
-            "error": "Address cannot be empty"
+            "error": "Invalid BTC address"
         }));
     }
 
@@ -262,9 +268,9 @@ async fn select_utxos(
         }));
     }
 
-    if address.is_empty() {
+    if parse_bitcoin_address(&address).is_err() {
         return HttpResponse::BadRequest().json(json!({
-            "error": "Address cannot be empty"
+            "error": "Invalid BTC address"
         }));
     }
 
