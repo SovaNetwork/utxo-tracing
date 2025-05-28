@@ -67,6 +67,9 @@ impl UtxoSqliteDatasource {
                     UNIQUE(txid, vout)
                 )",
             ),
+            M::up("CREATE INDEX IF NOT EXISTS idx_utxo_address ON utxo(address)"),
+            M::up("CREATE INDEX IF NOT EXISTS idx_utxo_block_height ON utxo(block_height)"),
+            M::up("CREATE INDEX IF NOT EXISTS idx_utxo_spent_block ON utxo(spent_block)"),
         ]);
 
         let mut conn = self
