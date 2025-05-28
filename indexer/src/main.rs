@@ -115,7 +115,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let args = Args::parse();
 
-    let utxo_url = std::env::var("UTXO_URL").unwrap_or_else(|_| "http://network-utxos:5557".to_string());
+    let utxo_url =
+        std::env::var("UTXO_URL").unwrap_or_else(|_| "http://network-utxos:5557".to_string());
 
     let config = IndexerConfig {
         network: args.parse_network(),

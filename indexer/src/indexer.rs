@@ -4,12 +4,12 @@ use bitcoincore_rpc::bitcoin::{Address, Block, BlockHash, Network, ScriptBuf};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use chrono::{DateTime, Utc};
 use log::{error, info};
+use network_shared::{BlockUpdate, SocketTransport, UtxoUpdate, FINALITY_CONFIRMATIONS};
 use reqwest::Client as HttpClient;
 use serde_json::Value as JsonValue;
-use network_shared::{BlockUpdate, SocketTransport, UtxoUpdate, FINALITY_CONFIRMATIONS};
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::str::FromStr;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::error::{IndexerError, Result};
@@ -156,9 +156,9 @@ impl BitcoinIndexer {
                             script_type = utxo.script_type;
                         }
                     }
-                } else if let Ok(Some(txout)) = self
-                    .rpc_client
-                    .get_tx_out(&input.previous_output.txid, vout_index, None)
+                } else if let Ok(Some(txout)) =
+                    self.rpc_client
+                        .get_tx_out(&input.previous_output.txid, vout_index, None)
                 {
                     if let Ok(script_bytes) = hex::decode(txout.script_pub_key.hex) {
                         let script = ScriptBuf::from_bytes(script_bytes);
@@ -169,16 +169,17 @@ impl BitcoinIndexer {
                             script_type = determine_script_type(script.clone());
                         }
                     }
-                } else if let Ok(prev_tx) =
-                    self.rpc_client.get_raw_transaction(&input.previous_output.txid, None)
+                } else if let Ok(prev_tx) = self
+                    .rpc_client
+                    .get_raw_transaction(&input.previous_output.txid, None)
                 {
                     let prev_output = &prev_tx.output[vout_index as usize];
-                    if let Ok(addr) = Address::from_script(&prev_output.script_pubkey, self.network) {
+                    if let Ok(addr) = Address::from_script(&prev_output.script_pubkey, self.network)
+                    {
                         address_opt = Some(addr);
                         amount_sat = prev_output.value.to_sat() as i64;
                         script_hex = hex::encode(prev_output.script_pubkey.as_bytes());
-                        script_type =
-                            determine_script_type(prev_output.script_pubkey.clone());
+                        script_type = determine_script_type(prev_output.script_pubkey.clone());
                     }
                 }
 
