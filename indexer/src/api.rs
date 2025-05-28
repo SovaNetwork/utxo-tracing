@@ -586,13 +586,25 @@ pub async fn prepare_transaction_handler(
 }
 
 pub async fn run_server(host: &str, port: u16, state: ApiState) {
-    let json_body = warp::body::content_length_limit(MAX_JSON_BODY_SIZE)
-        .and(warp::body::json());
+    let json_watch_address = warp::body::content_length_limit(MAX_JSON_BODY_SIZE)
+        .and(warp::body::json::<WatchAddressRequest>());
+
+    let json_derive_address = warp::body::content_length_limit(MAX_JSON_BODY_SIZE)
+        .and(warp::body::json::<DeriveAddressRequest>());
+
+    let json_select_utxos = warp::body::content_length_limit(MAX_JSON_BODY_SIZE)
+        .and(warp::body::json::<SelectUtxosRequest>());
+
+    let json_prepare_tx = warp::body::content_length_limit(MAX_JSON_BODY_SIZE)
+        .and(warp::body::json::<PrepareTransactionRequest>());
+
+    let json_sign_tx = warp::body::content_length_limit(MAX_JSON_BODY_SIZE)
+        .and(warp::body::json::<SignTransactionRequest>());
 
     let post_route = warp::post()
         .and(warp::path("watch-address"))
         .and(warp::header::<String>("x-api-key"))
-        .and(json_body.clone())
+        .and(json_watch_address)
         .and(with_state(state.clone()))
         .and_then(watch_address_handler);
 
@@ -605,28 +617,28 @@ pub async fn run_server(host: &str, port: u16, state: ApiState) {
     let derive_address_route = warp::post()
         .and(warp::path("derive-address"))
         .and(warp::header::<String>("x-api-key"))
-        .and(json_body.clone())
+        .and(json_derive_address)
         .and(with_state(state.clone()))
         .and_then(derive_address_handler);
 
     let select_utxos_route = warp::post()
         .and(warp::path("select-utxos"))
         .and(warp::header::<String>("x-api-key"))
-        .and(json_body.clone())
+        .and(json_select_utxos)
         .and(with_state(state.clone()))
         .and_then(select_utxos_handler);
 
     let prepare_tx_route = warp::post()
         .and(warp::path("prepare-transaction"))
         .and(warp::header::<String>("x-api-key"))
-        .and(json_body.clone())
+        .and(json_prepare_tx)
         .and(with_state(state.clone()))
         .and_then(prepare_transaction_handler);
 
     let sign_tx_route = warp::post()
         .and(warp::path("sign-transaction"))
         .and(warp::header::<String>("x-api-key"))
-        .and(json_body)
+        .and(json_sign_tx)
         .and(with_state(state))
         .and_then(sign_transaction_handler);
 
