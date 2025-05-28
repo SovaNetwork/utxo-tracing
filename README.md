@@ -119,6 +119,7 @@ docker-compose up -d
 | PORT | HTTP server port | 5557 |
 | LOG_LEVEL | Log level | info |
 | DATASOURCE | Storage backend (csv/sqlite) | sqlite |
+| NETWORK | Bitcoin network (mainnet, testnet, regtest, signet) | regtest |
 | SOCKET_PATH | Path to Unix socket | /tmp/network-utxos.sock |
 
 
