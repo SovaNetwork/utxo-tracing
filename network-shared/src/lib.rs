@@ -15,6 +15,7 @@ pub enum NetworkMessage {
     GetBlockHash { height: i32 },
     BlockHashResponse { hash: String },
     UpdateFinalityStatus { current_height: i32 },
+    BlockProcessedAck { height: i32 },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -56,7 +57,7 @@ impl SocketTransport {
     }
 
     pub async fn send_update(&self, update: &BlockUpdate) -> Result<()> {
-        use tokio::io::AsyncWriteExt;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::UnixStream;
 
         // Connect to socket
@@ -70,7 +71,23 @@ impl SocketTransport {
         stream.write_all(&size.to_le_bytes()).await?;
         stream.write_all(&data).await?;
 
-        Ok(())
+        // Wait for acknowledgment
+        let mut size_buf = [0u8; 4];
+        stream.read_exact(&mut size_buf).await?;
+        let size = u32::from_le_bytes(size_buf) as usize;
+
+        let mut data = vec![0u8; size];
+        stream.read_exact(&mut data).await?;
+
+        let response: NetworkMessage = bincode::deserialize(&data)?;
+
+        match response {
+            NetworkMessage::BlockProcessedAck { height } if height == update.height => Ok(()),
+            _ => Err(TransportError::IoError(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Unexpected response type",
+            ))),
+        }
     }
 
     pub async fn send_reorg_event(&self, fork_height: i32) -> Result<()> {

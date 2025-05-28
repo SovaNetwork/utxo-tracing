@@ -75,8 +75,10 @@ async fn handle_socket_connection(stream: UnixStream, db: Arc<UtxoDatabase>) -> 
         network_shared::NetworkMessage::BlockUpdate(update) => {
             info!(height = update.height, "Received block update via socket");
 
+            let height = update.height;
+
             // Store block information
-            if let Err(e) = db.store_block(update.height, &update.hash, update.timestamp) {
+            if let Err(e) = db.store_block(height, &update.hash, update.timestamp) {
                 error!("Error storing block info: {}", e);
             }
 
@@ -84,6 +86,14 @@ async fn handle_socket_connection(stream: UnixStream, db: Arc<UtxoDatabase>) -> 
             if let Err(e) = db.process_block(update).await {
                 error!("Error processing block: {}", e);
             }
+
+            // Send acknowledgment
+            let ack = network_shared::NetworkMessage::BlockProcessedAck { height };
+            let ack_data = bincode::serialize(&ack)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+            let ack_size = ack_data.len() as u32;
+            stream.write_all(&ack_size.to_le_bytes()).await?;
+            stream.write_all(&ack_data).await?;
         }
         network_shared::NetworkMessage::ReorgEvent { fork_height } => {
             info!(fork_height, "Received reorg event via socket");
