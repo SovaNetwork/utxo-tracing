@@ -89,9 +89,14 @@ fn parse_bitcoin_address(addr: &str, network: Network) -> Result<Address, String
 }
 
 pub async fn watch_address_handler(
+    api_key: String,
     body: WatchAddressRequest,
     state: ApiState,
 ) -> Result<impl Reply, Infallible> {
+    if api_key != state.indexer_api_key {
+        let resp = warp::reply::json(&json!({ "error": "Unauthorized" }));
+        return Ok(warp::reply::with_status(resp, StatusCode::UNAUTHORIZED));
+    }
     match parse_bitcoin_address(&body.btc_address, state.network) {
         Ok(addr) => {
             {
@@ -128,9 +133,14 @@ pub async fn get_watch_address_handler(
 }
 
 pub async fn derive_address_handler(
+    api_key: String,
     req: DeriveAddressRequest,
     state: ApiState,
 ) -> Result<impl Reply, Infallible> {
+    if api_key != state.indexer_api_key {
+        let resp = warp::reply::json(&json!({ "error": "Unauthorized" }));
+        return Ok(warp::reply::with_status(resp, StatusCode::UNAUTHORIZED));
+    }
     let trimmed = req.evm_address.trim_start_matches("0x");
 
     if state.enclave_api_key.trim().is_empty() {
@@ -179,9 +189,14 @@ pub async fn derive_address_handler(
 }
 
 pub async fn select_utxos_handler(
+    api_key: String,
     req: SelectUtxosRequest,
     state: ApiState,
 ) -> Result<impl Reply, Infallible> {
+    if api_key != state.indexer_api_key {
+        let resp = warp::reply::json(&json!({ "error": "Unauthorized" }));
+        return Ok(warp::reply::with_status(resp, StatusCode::UNAUTHORIZED));
+    }
     let client = Client::new();
 
     let addresses: Vec<Address> = {
@@ -522,9 +537,14 @@ pub async fn sign_transaction_handler(
 }
 
 pub async fn prepare_transaction_handler(
+    api_key: String,
     req: PrepareTransactionRequest,
     state: ApiState,
 ) -> Result<impl Reply, Infallible> {
+    if api_key != state.indexer_api_key {
+        let resp = warp::reply::json(&json!({ "error": "Unauthorized" }));
+        return Ok(warp::reply::with_status(resp, StatusCode::UNAUTHORIZED));
+    }
     let total_needed = req.amount + req.fee;
 
     let selected_utxos = match fetch_selected_utxos(&state, req.block_height, total_needed).await {
@@ -565,6 +585,7 @@ pub async fn prepare_transaction_handler(
 pub async fn run_server(host: &str, port: u16, state: ApiState) {
     let post_route = warp::post()
         .and(warp::path("watch-address"))
+        .and(warp::header::<String>("x-api-key"))
         .and(warp::body::json())
         .and(with_state(state.clone()))
         .and_then(watch_address_handler);
@@ -577,18 +598,21 @@ pub async fn run_server(host: &str, port: u16, state: ApiState) {
 
     let derive_address_route = warp::post()
         .and(warp::path("derive-address"))
+        .and(warp::header::<String>("x-api-key"))
         .and(warp::body::json())
         .and(with_state(state.clone()))
         .and_then(derive_address_handler);
 
     let select_utxos_route = warp::post()
         .and(warp::path("select-utxos"))
+        .and(warp::header::<String>("x-api-key"))
         .and(warp::body::json())
         .and(with_state(state.clone()))
         .and_then(select_utxos_handler);
 
     let prepare_tx_route = warp::post()
         .and(warp::path("prepare-transaction"))
+        .and(warp::header::<String>("x-api-key"))
         .and(warp::body::json())
         .and(with_state(state.clone()))
         .and_then(prepare_transaction_handler);

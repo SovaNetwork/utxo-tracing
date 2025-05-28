@@ -51,10 +51,11 @@ The storage service provides the following HTTP endpoints:
 
 The indexer exposes an HTTP API used by validators:
 
-- `POST /watch-address` - add a Bitcoin address to the watch list
+- `POST /watch-address` - add a Bitcoin address to the watch list (requires `X-API-Key` header)
 - `GET /watch-address/{address}` - check if an address is watched
-- `POST /derive-address` - derive a Bitcoin address from an EVM address (forwarded to the signing service)
-- `POST /select-utxos` - select UTXOs across watched addresses for a target amount
+- `POST /derive-address` - derive a Bitcoin address from an EVM address (forwarded to the signing service, requires `X-API-Key` header)
+- `POST /select-utxos` - select UTXOs across watched addresses for a target amount (requires `X-API-Key` header)
+- `POST /prepare-transaction` - build an unsigned transaction skeleton (requires `X-API-Key` header)
 - `POST /sign-transaction` - proxy a signing request to the configured signing service (requires `X-API-Key` header)
 
 *Note: querying data for blocks less than 6 blocks behind the chain tip are subject to change based on the reorg mechanics described below.*
@@ -105,7 +106,7 @@ docker-compose up -d
 | ENCLAVE_URL | URL of the signing service (enclave) | - |
 | UTXO_URL | URL of the UTXO database service | http://network-utxos:5557 |
 | ENCLAVE_API_KEY | API key sent when proxying signing requests | - |
-| INDEXER_API_KEY | API key required for `/sign-transaction` | - |
+| INDEXER_API_KEY | API key required for modifying endpoints | - |
 
 ### network-utxos
 
