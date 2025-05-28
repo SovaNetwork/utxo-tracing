@@ -3,8 +3,19 @@ use serde_json::json;
 use tracing::log::error;
 use tracing::{info, instrument};
 
+use bitcoin::{Address, Network};
+use std::str::FromStr;
+
 use super::AppState;
 use crate::error::StorageError;
+
+fn parse_bitcoin_address(address: &str, expected_network: Network) -> Result<Address, String> {
+    let addr =
+        Address::from_str(address).map_err(|e| format!("Invalid Bitcoin address format: {}", e))?;
+
+    addr.require_network(expected_network)
+        .map_err(|e| format!("Bitcoin address network mismatch: {}", e))
+}
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.route("/latest-block", web::get().to(get_latest_block))
@@ -113,10 +124,9 @@ async fn get_block_address_utxos(
         }));
     }
 
-    if address.is_empty() {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "Address cannot be empty"
-        }));
+    // Validate address format and network
+    if let Err(msg) = parse_bitcoin_address(&address, state.network) {
+        return HttpResponse::BadRequest().json(json!({ "error": msg }));
     }
 
     // Get latest block
@@ -189,10 +199,9 @@ async fn get_spendable_utxos(
         }));
     }
 
-    if address.is_empty() {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "Address cannot be empty"
-        }));
+    // Validate address format and network
+    if let Err(msg) = parse_bitcoin_address(&address, state.network) {
+        return HttpResponse::BadRequest().json(json!({ "error": msg }));
     }
 
     info!(block_height, %address, "Querying spendable UTXOs for address at height");
@@ -262,10 +271,9 @@ async fn select_utxos(
         }));
     }
 
-    if address.is_empty() {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "Address cannot be empty"
-        }));
+    // Validate address format and network
+    if let Err(msg) = parse_bitcoin_address(&address, state.network) {
+        return HttpResponse::BadRequest().json(json!({ "error": msg }));
     }
 
     if target_amount <= 0 {
