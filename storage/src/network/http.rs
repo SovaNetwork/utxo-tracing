@@ -74,7 +74,7 @@ async fn get_block_txids(state: web::Data<AppState>, path: web::Path<i32>) -> Ht
         Err(e) => {
             error!("Failed to get latest block: {}", e);
             return HttpResponse::InternalServerError().json(json!({
-                "error": "Internal server error"
+                "error": format!("Failed to retrieve latest block: {}", e)
             }));
         }
     };
@@ -135,7 +135,7 @@ async fn get_block_address_utxos(
         Err(e) => {
             error!("Failed to get latest block: {}", e);
             return HttpResponse::InternalServerError().json(json!({
-                "error": "Internal server error"
+                "error": format!("Failed to retrieve latest block: {}", e)
             }));
         }
     };
@@ -212,7 +212,7 @@ async fn get_spendable_utxos(
         Err(e) => {
             error!("Failed to get latest block: {}", e);
             return HttpResponse::InternalServerError().json(json!({
-                "error": "Internal server error"
+                "error": format!("Failed to retrieve latest block: {}", e)
             }));
         }
     };
@@ -288,7 +288,7 @@ async fn select_utxos(
         Err(e) => {
             error!("Failed to get latest block: {}", e);
             return HttpResponse::InternalServerError().json(json!({
-                "error": "Internal server error"
+                "error": format!("Failed to retrieve latest block: {}", e)
             }));
         }
     };
