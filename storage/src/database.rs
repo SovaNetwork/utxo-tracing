@@ -161,6 +161,17 @@ impl UtxoDatabase {
             .get_utxos_for_block_and_address(block_height, address)
     }
 
+    pub fn get_utxo_by_outpoint(&self, txid: &str, vout: i32) -> StorageResult<Option<UtxoUpdate>> {
+        if txid.is_empty() {
+            return Err(StorageError::InvalidAddress("Empty txid".to_string()));
+        }
+        if vout < 0 {
+            return Err(StorageError::InvalidBlockHeight(vout));
+        }
+
+        self.datasource.get_utxo_by_outpoint(txid, vout)
+    }
+
     pub fn get_block_txids(&self, block_height: i32) -> StorageResult<Vec<String>> {
         // Validate parameters
         if block_height < 0 {

@@ -20,7 +20,8 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .route(
             "/select-utxos/block/{height}/address/{address}/amount/{amount}",
             web::get().to(select_utxos),
-        );
+        )
+        .route("/utxo/{txid}/{vout}", web::get().to(get_utxo_by_outpoint));
 }
 
 #[instrument(skip(state))]
@@ -325,5 +326,23 @@ async fn select_utxos(
                 }))
             }
         },
+    }
+}
+
+#[instrument(skip(state))]
+async fn get_utxo_by_outpoint(
+    state: web::Data<AppState>,
+    path: web::Path<(String, i32)>,
+) -> HttpResponse {
+    let (txid, vout) = path.into_inner();
+    info!(%txid, vout, "Fetching UTXO by outpoint");
+
+    match state.db.get_utxo_by_outpoint(&txid, vout) {
+        Ok(Some(utxo)) => HttpResponse::Ok().json(json!({ "utxo": utxo })),
+        Ok(None) => HttpResponse::NotFound().json(json!({ "error": "UTXO not found" })),
+        Err(e) => {
+            error!("Failed to fetch UTXO: {}", e);
+            HttpResponse::InternalServerError().json(json!({ "error": format!("{}", e) }))
+        }
     }
 }

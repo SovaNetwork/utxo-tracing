@@ -361,4 +361,16 @@ impl Datasource for UtxoCSVDatasource {
 
         Ok(())
     }
+
+    fn get_utxo_by_outpoint(&self, txid: &str, vout: i32) -> StorageResult<Option<UtxoUpdate>> {
+        let utxos = self.utxos.read();
+        for address_utxos in utxos.values() {
+            for utxo in address_utxos.values() {
+                if utxo.txid == txid && utxo.vout == vout {
+                    return Ok(Some(utxo.clone()));
+                }
+            }
+        }
+        Ok(None)
+    }
 }
