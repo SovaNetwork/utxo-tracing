@@ -13,6 +13,9 @@ use database::UtxoDatabase;
 use datasources::create_datasource;
 use network::{socket::run_socket_server, AppState};
 
+/// Maximum allowed size for JSON request bodies (32 KiB)
+const MAX_JSON_PAYLOAD_SIZE: usize = 32 * 1024;
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -113,6 +116,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .wrap(Logger::default())
             .app_data(state.clone())
+            .app_data(web::JsonConfig::default().limit(MAX_JSON_PAYLOAD_SIZE))
             .configure(network::http::configure_routes)
     })
     .bind(bind_addr)?
