@@ -44,7 +44,8 @@ ENV HOST=0.0.0.0 \
     PORT=5557 \
     LOG_LEVEL=info \
     DATASOURCE=sqlite \
-    SOCKET_PATH=/tmp/network-utxos.sock
+    SOCKET_PATH=/tmp/network-utxos.sock \
+    NETWORK=regtest
 
 # Switch to non-root user
 USER service
@@ -59,4 +60,5 @@ CMD storage \
     --port "$PORT" \
     --log-level "$LOG_LEVEL" \
     --datasource "$DATASOURCE" \
+    --network "$NETWORK" \
     --socket-path "$SOCKET_PATH"
