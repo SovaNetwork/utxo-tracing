@@ -46,6 +46,11 @@ The storage service provides the following HTTP endpoints:
 - `GET /utxos/block/{height}/address/{address}`: Get UTXOs for an address at a specific block height
 - `GET /spendable-utxos/block/{height}/address/{address}`: Get spendable UTXOs for an address at a specific block height
 - `GET /select-utxos/block/{height}/address/{address}/amount/{amount}`: Select UTXOs for a specified amount
+- `GET /signed-tx`: List stored signed transactions (optional `?page=N` for 250-record pages)
+- `GET /signed-tx/{txid}`: Retrieve a signed transaction by txid
+- `GET /signed-tx/caller/{caller}`: Retrieve signed transactions for a caller
+- `GET /signed-tx/block/{height}`: Retrieve signed transactions requested at a block height
+- `GET /signed-tx/destination/{destination}`: Retrieve signed transactions for a destination address
 
 ### Indexer service
 
