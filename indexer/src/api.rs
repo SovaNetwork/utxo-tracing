@@ -551,7 +551,10 @@ pub async fn sign_transaction_handler(
                 let dest = req.destination.clone();
                 let fee = req.fee;
                 tokio::spawn(async move {
-                    if let Err(e) = store_signed_tx(&store_state, &txid, &signed, &caller, bh, amt, &dest, fee).await {
+                    if let Err(e) =
+                        store_signed_tx(&store_state, &txid, &signed, &caller, bh, amt, &dest, fee)
+                            .await
+                    {
                         error!("Failed to store signed tx: {}", e);
                     }
                 });
