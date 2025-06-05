@@ -55,6 +55,8 @@ pub struct SignTransactionRequest {
     pub amount: i64,
     pub destination: String,
     pub fee: i64,
+    /// EVM caller address (20 byte hex string)
+    pub caller: String,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -338,6 +340,28 @@ async fn fetch_selected_utxos(
     ))
 }
 
+async fn store_signed_tx(
+    state: &ApiState,
+    txid: &str,
+    signed_tx: &str,
+    caller: &str,
+) -> Result<(), reqwest::Error> {
+    let client = reqwest::Client::new();
+    let url = format!("{}/signed-tx", state.utxo_url);
+    let body = json!({
+        "txid": txid,
+        "signed_tx": signed_tx,
+        "caller": caller,
+    });
+    let resp = client.post(&url).json(&body).send().await?;
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        error!("Store signed tx failed with status {}", resp.status());
+        Ok(())
+    }
+}
+
 fn build_unsigned_transaction(
     selected_utxos: &[network_shared::UtxoUpdate],
     amount: i64,
@@ -502,9 +526,20 @@ pub async fn sign_transaction_handler(
                 }
                 info!("Successfully signed transaction");
                 let reply = SignTransactionResponse {
-                    signed_tx: val.signed_tx,
-                    txid,
+                    signed_tx: val.signed_tx.clone(),
+                    txid: txid.clone(),
                 };
+
+                // Fire and forget storing of the signed transaction
+                let store_state = state.clone();
+                let caller = req.caller.clone();
+                let signed = val.signed_tx.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = store_signed_tx(&store_state, &txid, &signed, &caller).await {
+                        error!("Failed to store signed tx: {}", e);
+                    }
+                });
+
                 Ok(warp::reply::with_status(
                     warp::reply::json(&reply),
                     StatusCode::OK,
