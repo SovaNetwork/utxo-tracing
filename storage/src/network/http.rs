@@ -34,7 +34,12 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
             web::get().to(select_utxos),
         )
         .route("/utxo/{txid}/{vout}", web::get().to(get_utxo_by_outpoint))
-        .route("/signed-tx", web::post().to(store_signed_tx));
+        .route("/signed-tx", web::post().to(store_signed_tx))
+        .route("/signed-tx", web::get().to(get_all_signed_txs))
+        .route("/signed-tx/{txid}", web::get().to(get_signed_tx))
+        .route("/signed-tx/caller/{caller}", web::get().to(get_signed_txs_by_caller))
+        .route("/signed-tx/block/{height}", web::get().to(get_signed_txs_by_block))
+        .route("/signed-tx/destination/{destination}", web::get().to(get_signed_txs_by_destination));
 }
 
 #[instrument(skip(state))]
@@ -362,6 +367,10 @@ struct StoreSignedTxRequest {
     txid: String,
     signed_tx: String,
     caller: String,
+    block_height: i32,
+    amount: i64,
+    destination: String,
+    fee: i64,
 }
 
 #[instrument(skip(state, body))]
@@ -371,11 +380,125 @@ async fn store_signed_tx(
 ) -> HttpResponse {
     match state
         .signed_db
-        .store_signed_tx(&body.txid, &body.signed_tx, &body.caller)
+        .store_signed_tx(
+            &body.txid,
+            &body.signed_tx,
+            &body.caller,
+            body.block_height,
+            body.amount,
+            &body.destination,
+            body.fee,
+        )
     {
         Ok(_) => HttpResponse::Ok().json(json!({ "status": "OK" })),
         Err(e) => {
             error!("Failed to store signed tx: {}", e);
+            HttpResponse::InternalServerError().json(json!({ "error": format!("{}", e) }))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn get_signed_tx(state: web::Data<AppState>, path: web::Path<String>) -> HttpResponse {
+    let txid = path.into_inner();
+    match state.signed_db.get_signed_tx_by_txid(&txid) {
+        Ok(Some(tx)) => HttpResponse::Ok().json(json!({ "signed_tx": tx })),
+        Ok(None) => HttpResponse::NotFound().json(json!({ "error": "Signed transaction not found" })),
+        Err(e) => {
+            error!("Failed to fetch signed tx: {}", e);
+            HttpResponse::InternalServerError().json(json!({ "error": format!("{}", e) }))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn get_signed_txs_by_caller(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    let caller = path.into_inner();
+    match state.signed_db.get_signed_txs_by_caller(&caller) {
+        Ok(txs) => {
+            if txs.is_empty() {
+                HttpResponse::NotFound().json(json!({ "error": "No signed transactions found for caller" }))
+            } else {
+                HttpResponse::Ok().json(json!({ "caller": caller, "signed_txs": txs }))
+            }
+        }
+        Err(e) => {
+            error!("Failed to fetch signed txs: {}", e);
+            HttpResponse::InternalServerError().json(json!({ "error": format!("{}", e) }))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn get_signed_txs_by_block(
+    state: web::Data<AppState>,
+    path: web::Path<i32>,
+) -> HttpResponse {
+    let height = path.into_inner();
+    match state.signed_db.get_signed_txs_by_block_height(height) {
+        Ok(txs) => {
+            if txs.is_empty() {
+                HttpResponse::NotFound().json(json!({ "error": "No signed transactions found for block" }))
+            } else {
+                HttpResponse::Ok().json(json!({ "block_height": height, "signed_txs": txs }))
+            }
+        }
+        Err(e) => {
+            error!("Failed to fetch signed txs: {}", e);
+            HttpResponse::InternalServerError().json(json!({ "error": format!("{}", e) }))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn get_signed_txs_by_destination(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    let dest = path.into_inner();
+    match state.signed_db.get_signed_txs_by_destination(&dest) {
+        Ok(txs) => {
+            if txs.is_empty() {
+                HttpResponse::NotFound().json(json!({ "error": "No signed transactions found for destination" }))
+            } else {
+                HttpResponse::Ok().json(json!({ "destination": dest, "signed_txs": txs }))
+            }
+        }
+        Err(e) => {
+            error!("Failed to fetch signed txs: {}", e);
+            HttpResponse::InternalServerError().json(json!({ "error": format!("{}", e) }))
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct PaginationQuery {
+    page: Option<u32>,
+}
+
+#[instrument(skip(state))]
+async fn get_all_signed_txs(
+    state: web::Data<AppState>,
+    query: web::Query<PaginationQuery>,
+) -> HttpResponse {
+    let page = query.page.unwrap_or(1);
+    if page == 0 {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "page must be greater than 0"
+        }));
+    }
+    let limit = 250_i64;
+    let offset = ((page - 1) as i64) * limit;
+    match state.signed_db.get_signed_txs_paginated(offset, limit) {
+        Ok(txs) => HttpResponse::Ok().json(json!({
+            "page": page,
+            "signed_txs": txs
+        })),
+        Err(e) => {
+            error!("Failed to fetch signed txs: {}", e);
             HttpResponse::InternalServerError().json(json!({ "error": format!("{}", e) }))
         }
     }

@@ -349,6 +349,10 @@ async fn store_signed_tx(
     txid: &str,
     signed_tx: &str,
     caller: &str,
+    block_height: i32,
+    amount: i64,
+    destination: &str,
+    fee: i64,
 ) -> Result<(), reqwest::Error> {
     let client = reqwest::Client::new();
     let url = format!("{}/signed-tx", state.utxo_url);
@@ -356,6 +360,10 @@ async fn store_signed_tx(
         "txid": txid,
         "signed_tx": signed_tx,
         "caller": caller,
+        "block_height": block_height,
+        "amount": amount,
+        "destination": destination,
+        "fee": fee,
     });
     let resp = client.post(&url).json(&body).send().await?;
     if resp.status().is_success() {
@@ -538,8 +546,12 @@ pub async fn sign_transaction_handler(
                 let store_state = state.clone();
                 let caller = req.caller.clone();
                 let signed = val.signed_tx.clone();
+                let bh = req.block_height;
+                let amt = req.amount;
+                let dest = req.destination.clone();
+                let fee = req.fee;
                 tokio::spawn(async move {
-                    if let Err(e) = store_signed_tx(&store_state, &txid, &signed, &caller).await {
+                    if let Err(e) = store_signed_tx(&store_state, &txid, &signed, &caller, bh, amt, &dest, fee).await {
                         error!("Failed to store signed tx: {}", e);
                     }
                 });
