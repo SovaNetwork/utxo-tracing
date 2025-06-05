@@ -51,11 +51,15 @@ pub struct SelectUtxosRequest {
 
 #[derive(Deserialize, Serialize)]
 pub struct SignTransactionRequest {
+    /// block height to get spendable txs for
     pub block_height: i32,
+    /// nominal amount to send
     pub amount: i64,
+    /// receiving pubkey on btc
     pub destination: String,
+    /// btc tx fee
     pub fee: i64,
-    /// EVM caller address (20 byte hex string)
+    /// smart contract caller EVM address
     pub caller: String,
 }
 
