@@ -8,6 +8,7 @@ use std::str::FromStr;
 
 use super::AppState;
 use crate::error::StorageError;
+use serde::Deserialize;
 
 fn parse_bitcoin_address(address: &str, expected_network: Network) -> Result<Address, String> {
     let addr =
@@ -32,7 +33,8 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
             "/select-utxos/block/{height}/address/{address}/amount/{amount}",
             web::get().to(select_utxos),
         )
-        .route("/utxo/{txid}/{vout}", web::get().to(get_utxo_by_outpoint));
+        .route("/utxo/{txid}/{vout}", web::get().to(get_utxo_by_outpoint))
+        .route("/signed-tx", web::post().to(store_signed_tx));
 }
 
 #[instrument(skip(state))]
@@ -350,6 +352,30 @@ async fn get_utxo_by_outpoint(
         Ok(None) => HttpResponse::NotFound().json(json!({ "error": "UTXO not found" })),
         Err(e) => {
             error!("Failed to fetch UTXO: {}", e);
+            HttpResponse::InternalServerError().json(json!({ "error": format!("{}", e) }))
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct StoreSignedTxRequest {
+    txid: String,
+    signed_tx: String,
+    caller: String,
+}
+
+#[instrument(skip(state, body))]
+async fn store_signed_tx(
+    state: web::Data<AppState>,
+    body: web::Json<StoreSignedTxRequest>,
+) -> HttpResponse {
+    match state
+        .signed_db
+        .store_signed_tx(&body.txid, &body.signed_tx, &body.caller)
+    {
+        Ok(_) => HttpResponse::Ok().json(json!({ "status": "OK" })),
+        Err(e) => {
+            error!("Failed to store signed tx: {}", e);
             HttpResponse::InternalServerError().json(json!({ "error": format!("{}", e) }))
         }
     }

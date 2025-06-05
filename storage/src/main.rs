@@ -3,6 +3,7 @@ mod datasources;
 mod error;
 mod models;
 mod network;
+mod signed_db;
 
 use actix_web::{middleware::Logger, web, App, HttpServer};
 use bitcoin::Network;
@@ -12,6 +13,7 @@ use tracing::{error, info};
 use database::UtxoDatabase;
 use datasources::create_datasource;
 use network::{socket::run_socket_server, AppState};
+use signed_db::SignedTxDatabase;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -86,13 +88,15 @@ async fn main() -> std::io::Result<()> {
         )));
     }
 
-    // Create database
+    // Create databases
     let db = UtxoDatabase::new(datasource);
+    let signed_db = SignedTxDatabase::new().map_err(|e| std::io::Error::other(format!("{}", e)))?;
 
     // Determine the Bitcoin network this instance should operate on
     let network = args.parse_network();
     let state = web::Data::new(AppState {
         db: db.clone(),
+        signed_db: signed_db.clone(),
         network,
     });
 
