@@ -11,9 +11,9 @@ use clap::Parser;
 use tracing::{error, info};
 
 use database::UtxoDatabase;
-use signed_db::SignedTxDatabase;
 use datasources::create_datasource;
 use network::{socket::run_socket_server, AppState};
+use signed_db::SignedTxDatabase;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::{params};
+use rusqlite::params;
 use rusqlite_migration::{Migrations, M};
 
 use crate::error::{StorageError, StorageResult};
@@ -17,8 +17,7 @@ impl SignedTxDatabase {
         let data_dir = std::env::current_dir()
             .map_err(|e| StorageError::IoError(e.to_string()))?
             .join("data");
-        std::fs::create_dir_all(&data_dir)
-            .map_err(|e| StorageError::IoError(e.to_string()))?;
+        std::fs::create_dir_all(&data_dir).map_err(|e| StorageError::IoError(e.to_string()))?;
         let db_path = data_dir.join("signed.db");
         let db_str = db_path
             .to_str()
