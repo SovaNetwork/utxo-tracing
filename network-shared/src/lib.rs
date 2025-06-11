@@ -44,6 +44,17 @@ pub struct UtxoUpdate {
     pub spent_block: Option<i32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoreSignedTxRequest {
+    pub txid: String,
+    pub signed_tx: String,
+    pub caller: String,
+    pub block_height: i32,
+    pub amount: i64,
+    pub destination: String,
+    pub fee: i64,
+}
+
 // Socket transport implementation for sender side
 pub struct SocketTransport {
     socket_path: String,

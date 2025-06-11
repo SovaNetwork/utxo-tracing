@@ -10,6 +10,7 @@ use serde_json::json;
 use std::str::FromStr;
 use tokio::sync::RwLock;
 use warp::{http::StatusCode, Filter, Reply};
+use network_shared::StoreSignedTxRequest;
 
 /// Maximum allowed size for JSON request bodies (32 KiB)
 const MAX_JSON_BODY_SIZE: u64 = 32 * 1024;
@@ -344,27 +345,10 @@ async fn fetch_selected_utxos(
     ))
 }
 
-async fn store_signed_tx(
-    state: &ApiState,
-    txid: &str,
-    signed_tx: &str,
-    caller: &str,
-    block_height: i32,
-    amount: i64,
-    destination: &str,
-    fee: i64,
-) -> Result<(), reqwest::Error> {
+async fn store_signed_tx(state: &ApiState, req: &StoreSignedTxRequest) -> Result<(), reqwest::Error> {
     let client = reqwest::Client::new();
     let url = format!("{}/signed-tx", state.utxo_url);
-    let body = json!({
-        "txid": txid,
-        "signed_tx": signed_tx,
-        "caller": caller,
-        "block_height": block_height,
-        "amount": amount,
-        "destination": destination,
-        "fee": fee,
-    });
+    let body = json!(req);
     let resp = client.post(&url).json(&body).send().await?;
     if resp.status().is_success() {
         Ok(())
@@ -544,17 +528,17 @@ pub async fn sign_transaction_handler(
 
                 // Fire and forget storing of the signed transaction
                 let store_state = state.clone();
-                let caller = req.caller.clone();
-                let signed = val.signed_tx.clone();
-                let bh = req.block_height;
-                let amt = req.amount;
-                let dest = req.destination.clone();
-                let fee = req.fee;
+                let store_req = StoreSignedTxRequest {
+                    txid: txid.clone(),
+                    signed_tx: val.signed_tx.clone(),
+                    caller: req.caller.clone(),
+                    block_height: req.block_height,
+                    amount: req.amount,
+                    destination: req.destination.clone(),
+                    fee: req.fee,
+                };
                 tokio::spawn(async move {
-                    if let Err(e) =
-                        store_signed_tx(&store_state, &txid, &signed, &caller, bh, amt, &dest, fee)
-                            .await
-                    {
+                    if let Err(e) = store_signed_tx(&store_state, &store_req).await {
                         error!("Failed to store signed tx: {}", e);
                     }
                 });
