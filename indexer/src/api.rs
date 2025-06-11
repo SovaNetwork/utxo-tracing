@@ -4,13 +4,13 @@ use std::sync::Arc;
 
 use bitcoincore_rpc::bitcoin::{address::NetworkUnchecked, Address, Amount, Network};
 use log::{debug, error, info};
+use network_shared::StoreSignedTxRequest;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::str::FromStr;
 use tokio::sync::RwLock;
 use warp::{http::StatusCode, Filter, Reply};
-use network_shared::StoreSignedTxRequest;
 
 /// Maximum allowed size for JSON request bodies (32 KiB)
 const MAX_JSON_BODY_SIZE: u64 = 32 * 1024;
@@ -345,7 +345,10 @@ async fn fetch_selected_utxos(
     ))
 }
 
-async fn store_signed_tx(state: &ApiState, req: &StoreSignedTxRequest) -> Result<(), reqwest::Error> {
+async fn store_signed_tx(
+    state: &ApiState,
+    req: &StoreSignedTxRequest,
+) -> Result<(), reqwest::Error> {
     let client = reqwest::Client::new();
     let url = format!("{}/signed-tx", state.utxo_url);
     let body = json!(req);

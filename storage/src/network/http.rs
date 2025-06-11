@@ -8,8 +8,8 @@ use std::str::FromStr;
 
 use super::AppState;
 use crate::error::StorageError;
-use serde::Deserialize;
 use network_shared::StoreSignedTxRequest;
+use serde::Deserialize;
 
 fn parse_bitcoin_address(address: &str, expected_network: Network) -> Result<Address, String> {
     let addr =
@@ -371,7 +371,6 @@ async fn get_utxo_by_outpoint(
         }
     }
 }
-
 
 #[instrument(skip(state, body))]
 async fn store_signed_tx(
