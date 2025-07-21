@@ -51,7 +51,7 @@ impl Args {
             "testnet" => Network::Testnet,
             "regtest" => Network::Regtest,
             "signet" => Network::Signet,
-            other => panic!("Unsupported network: {}", other),
+            other => panic!("Unsupported network: {other}"),
         }
     }
 }
@@ -73,24 +73,22 @@ async fn main() -> std::io::Result<()> {
         Err(e) => {
             error!("Failed to create datasource: {}", e);
             return Err(std::io::Error::other(format!(
-                "Failed to create datasource: {}",
-                e
+                "Failed to create datasource: {e}",
             )));
         }
     };
 
     // Initialize datasource
     if let Err(e) = datasource.setup() {
-        error!("Failed to setup datasource: {}", e);
+        error!("Failed to setup datasource: {e}");
         return Err(std::io::Error::other(format!(
-            "Failed to setup datasource: {}",
-            e
+            "Failed to setup datasource: {e}",
         )));
     }
 
     // Create databases
     let db = UtxoDatabase::new(datasource);
-    let signed_db = SignedTxDatabase::new().map_err(|e| std::io::Error::other(format!("{}", e)))?;
+    let signed_db = SignedTxDatabase::new().map_err(|e| std::io::Error::other(format!("{e}")))?;
 
     // Determine the Bitcoin network this instance should operate on
     let network = args.parse_network();
@@ -105,7 +103,7 @@ async fn main() -> std::io::Result<()> {
     let db_clone = db.clone();
     tokio::spawn(async move {
         if let Err(e) = run_socket_server(db_clone, &socket_path).await {
-            error!("Socket server error: {}", e);
+            error!("Socket server error: {e}");
         }
     });
 

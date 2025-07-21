@@ -165,7 +165,7 @@ impl Datasource for UtxoSqliteDatasource {
 
         // Start a transaction
         let tx = conn.transaction().map_err(|e| {
-            StorageError::DatabaseQueryFailed(format!("Failed to start transaction: {}", e))
+            StorageError::DatabaseQueryFailed(format!("Failed to start transaction: {e}"))
         })?;
 
         // Upsert UTXOs from utxos_update
@@ -192,7 +192,7 @@ impl Datasource for UtxoSqliteDatasource {
 
         // Commit the transaction
         tx.commit().map_err(|e| {
-            StorageError::DatabaseQueryFailed(format!("Failed to commit transaction: {}", e))
+            StorageError::DatabaseQueryFailed(format!("Failed to commit transaction: {e}"))
         })?;
 
         Ok(())
@@ -228,7 +228,7 @@ impl Datasource for UtxoSqliteDatasource {
             AND address = ?2",
             )
             .map_err(|e| {
-                StorageError::DatabaseQueryFailed(format!("Failed to prepare statement: {}", e))
+                StorageError::DatabaseQueryFailed(format!("Failed to prepare statement: {e}"))
             })?;
 
         let mut results = Vec::new();
@@ -261,17 +261,14 @@ impl Datasource for UtxoSqliteDatasource {
                     spent_block: row.get(12)?,
                 })
             })
-            .map_err(|e| {
-                StorageError::DatabaseQueryFailed(format!("Failed to query rows: {}", e))
-            })?;
+            .map_err(|e| StorageError::DatabaseQueryFailed(format!("Failed to query rows: {e}")))?;
 
         for row in rows {
             match row {
                 Ok(utxo) => results.push(utxo),
                 Err(e) => {
                     return Err(StorageError::DatabaseQueryFailed(format!(
-                        "Failed to process row: {}",
-                        e
+                        "Failed to process row: {e}"
                     )))
                 }
             }
@@ -309,7 +306,7 @@ impl Datasource for UtxoSqliteDatasource {
 
         // Prepare the statement
         let mut stmt = conn.prepare(query).map_err(|e| {
-            StorageError::DatabaseQueryFailed(format!("Failed to prepare statement: {}", e))
+            StorageError::DatabaseQueryFailed(format!("Failed to prepare statement: {e}"))
         })?;
 
         // Execute the query and map results to UtxoUpdate
@@ -340,9 +337,7 @@ impl Datasource for UtxoSqliteDatasource {
                     spent_block: row.get(12)?,
                 })
             })
-            .map_err(|e| {
-                StorageError::DatabaseQueryFailed(format!("Failed to query rows: {}", e))
-            })?;
+            .map_err(|e| StorageError::DatabaseQueryFailed(format!("Failed to query rows: {e}")))?;
 
         // Collect the results into a vector
         let mut results = Vec::new();
@@ -351,8 +346,7 @@ impl Datasource for UtxoSqliteDatasource {
                 Ok(utxo) => results.push(utxo),
                 Err(e) => {
                     return Err(StorageError::DatabaseQueryFailed(format!(
-                        "Failed to process row: {}",
-                        e
+                        "Failed to process row: {e}"
                     )))
                 }
             }
@@ -381,7 +375,7 @@ impl Datasource for UtxoSqliteDatasource {
         ";
 
         let mut stmt = conn.prepare(query).map_err(|e| {
-            StorageError::DatabaseQueryFailed(format!("Failed to prepare statement: {}", e))
+            StorageError::DatabaseQueryFailed(format!("Failed to prepare statement: {e}"))
         })?;
 
         let rows = stmt
@@ -411,9 +405,7 @@ impl Datasource for UtxoSqliteDatasource {
                     spent_block: row.get(12)?,
                 })
             })
-            .map_err(|e| {
-                StorageError::DatabaseQueryFailed(format!("Failed to query rows: {}", e))
-            })?;
+            .map_err(|e| StorageError::DatabaseQueryFailed(format!("Failed to query rows: {e}")))?;
 
         let mut results = Vec::new();
         for row in rows {
@@ -421,8 +413,7 @@ impl Datasource for UtxoSqliteDatasource {
                 Ok(utxo) => results.push(utxo),
                 Err(e) => {
                     return Err(StorageError::DatabaseQueryFailed(format!(
-                        "Failed to process row: {}",
-                        e
+                        "Failed to process row: {e}",
                     )))
                 }
             }
@@ -532,7 +523,7 @@ impl Datasource for UtxoSqliteDatasource {
             .map_err(|e| StorageError::DatabaseConnectionFailed(e.to_string()))?;
 
         let tx = conn.transaction().map_err(|e| {
-            StorageError::DatabaseQueryFailed(format!("Failed to start transaction: {}", e))
+            StorageError::DatabaseQueryFailed(format!("Failed to start transaction: {e}"))
         })?;
 
         // 1. Unspend UTXOs that were spent after this height
@@ -551,7 +542,7 @@ impl Datasource for UtxoSqliteDatasource {
             .map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
 
         tx.commit().map_err(|e| {
-            StorageError::DatabaseQueryFailed(format!("Failed to commit transaction: {}", e))
+            StorageError::DatabaseQueryFailed(format!("Failed to commit transaction: {e}"))
         })?;
 
         Ok(())

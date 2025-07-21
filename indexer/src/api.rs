@@ -102,11 +102,11 @@ struct EnclaveSignResponse {
 fn parse_bitcoin_address(addr: &str, network: Network) -> Result<Address, String> {
     let address_unchecked: Address<NetworkUnchecked> = addr
         .parse()
-        .map_err(|e| format!("Address parse error: {:?}", e))?;
+        .map_err(|e| format!("Address parse error: {e:?}"))?;
 
     address_unchecked
         .require_network(network)
-        .map_err(|e| format!("Network mismatch: {:?}", e))
+        .map_err(|e| format!("Network mismatch: {e:?}"))
 }
 
 pub async fn watch_address_handler(

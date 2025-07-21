@@ -45,8 +45,7 @@ pub fn create_datasource(arg: &str) -> StorageResult<Arc<dyn Datasource + Send +
             Ok(datasource as Arc<dyn Datasource + Send + Sync>)
         }
         _ => Err(StorageError::UnexpectedError(format!(
-            "Invalid argument for datasource: {}, Use 'csv' or 'sqlite'",
-            arg
+            "Invalid argument for datasource: {arg}, Use 'csv' or 'sqlite'",
         ))),
     }
 }
