@@ -297,7 +297,7 @@ async fn fetch_selected_utxos(
         );
 
         let resp = client.get(&url).send().await.map_err(|e| {
-            error!("Failed to request UTXOs: {}", e);
+            error!("Failed to request UTXOs: {e}");
             (
                 json!({ "error": "Failed to fetch UTXOs" }),
                 StatusCode::INTERNAL_SERVER_ERROR,
