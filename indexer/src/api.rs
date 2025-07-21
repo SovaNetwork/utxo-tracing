@@ -9,9 +9,9 @@ use network_shared::StoreSignedTxRequest;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use tokio::sync::RwLock;
-use sha2::{Digest, Sha256};
 use warp::{http::StatusCode, Filter, Reply};
 
 /// Maximum allowed size for JSON request bodies (32 KiB)
@@ -81,7 +81,7 @@ pub struct PrepareTransactionRequest {
     pub fee: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct PrepareTransactionResponse {
     pub txid: String,
 }
@@ -90,7 +90,6 @@ pub struct PrepareTransactionResponse {
 pub struct CachedPrepareResponse {
     pub response: PrepareTransactionResponse,
     pub created_at: Instant,
-    pub selected_utxos: Vec<network_shared::UtxoUpdate>,
 }
 
 const CACHE_EXPIRY_DURATION: Duration = Duration::from_secs(300);
@@ -366,9 +365,7 @@ fn generate_prepare_tx_cache_key(req: &PrepareTransactionRequest) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-async fn clean_expired_cache_entries(
-    cache: &Arc<RwLock<HashMap<String, CachedPrepareResponse>>>,
-) {
+async fn clean_expired_cache_entries(cache: &Arc<RwLock<HashMap<String, CachedPrepareResponse>>>) {
     let mut cache_write = cache.write().await;
     let now = Instant::now();
     cache_write.retain(|_, entry| now.duration_since(entry.created_at) < CACHE_EXPIRY_DURATION);
@@ -386,7 +383,7 @@ async fn fetch_selected_utxos_deterministic(
     let watched_addresses = {
         let addr_set = state.watched_addresses.read().await;
         let mut addresses: Vec<_> = addr_set.iter().cloned().collect();
-        addresses.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+        addresses.sort_by_key(|a| a.to_string());
         addresses
     };
 
@@ -717,7 +714,10 @@ pub async fn prepare_transaction_handler_idempotent(
         let cache_read = state.prepare_tx_cache.read().await;
         if let Some(cached_entry) = cache_read.get(&cache_key) {
             if Instant::now().duration_since(cached_entry.created_at) < CACHE_EXPIRY_DURATION {
-                info!("Returning cached prepare transaction result for key: {}", cache_key);
+                info!(
+                    "Returning cached prepare transaction result for key: {}",
+                    cache_key
+                );
                 return Ok(warp::reply::with_status(
                     warp::reply::json(&cached_entry.response),
                     StatusCode::OK,
@@ -728,12 +728,13 @@ pub async fn prepare_transaction_handler_idempotent(
 
     let total_needed = req.amount + req.fee;
 
-    let selected_utxos = match fetch_selected_utxos_deterministic(&state, req.block_height, total_needed).await {
-        Ok(list) => list,
-        Err((msg, status)) => {
-            return Ok(warp::reply::with_status(warp::reply::json(&msg), status));
-        }
-    };
+    let selected_utxos =
+        match fetch_selected_utxos_deterministic(&state, req.block_height, total_needed).await {
+            Ok(list) => list,
+            Err((msg, status)) => {
+                return Ok(warp::reply::with_status(warp::reply::json(&msg), status));
+            }
+        };
 
     info!(
         "Building transaction to {} for {} sats using {} UTXOs",
@@ -765,7 +766,6 @@ pub async fn prepare_transaction_handler_idempotent(
             CachedPrepareResponse {
                 response: response.clone(),
                 created_at: Instant::now(),
-                selected_utxos,
             },
         );
     }
