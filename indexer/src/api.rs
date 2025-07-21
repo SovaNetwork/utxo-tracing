@@ -83,7 +83,7 @@ pub struct PrepareTransactionRequest {
     pub fee: i64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PrepareTransactionResponse {
     pub txid: String,
 }
@@ -94,7 +94,6 @@ pub struct CachedPrepareResponse {
     pub created_at: DateTime<Utc>,
 }
 
-const CACHE_EXPIRY_DURATION: Duration = Duration::from_secs(300);
 const PREPARE_TX_CACHE_FILE: &str = "prepare_tx_cache.json";
 
 #[derive(Deserialize)]
@@ -724,21 +723,12 @@ pub async fn prepare_transaction_handler_idempotent(
     {
         let cache_read = state.prepare_tx_cache.read().await;
         if let Some(cached_entry) = cache_read.get(&cache_key) {
-            if Utc::now()
-                .signed_duration_since(cached_entry.created_at)
-                .to_std()
-                .unwrap_or_default()
-                < CACHE_EXPIRY_DURATION
-            {
-                info!(
-                    "Returning cached prepare transaction result for key: {}",
-                    cache_key
-                );
-                return Ok(warp::reply::with_status(
-                    warp::reply::json(&cached_entry.response),
-                    StatusCode::OK,
-                ));
-            }
+            // Always return cached result if it exists (idempotent)
+            info!("Returning cached prepare transaction result for key: {}", cache_key);
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&cached_entry.response),
+                StatusCode::OK,
+            ));
         }
     }
 
@@ -784,10 +774,6 @@ pub async fn prepare_transaction_handler_idempotent(
                 created_at: Utc::now(),
             },
         );
-    }
-
-    if let Err(e) = persist_prepare_tx_cache(&state.prepare_tx_cache).await {
-        error!("Failed to persist prepare tx cache: {e}");
     }
 
     info!("Cached prepare transaction result for key: {}", cache_key);
