@@ -3,7 +3,7 @@ mod error;
 mod indexer;
 mod utils;
 
-use std::{collections::HashMap, error::Error, net::IpAddr, sync::Arc, time::Duration};
+use std::{error::Error, net::IpAddr, sync::Arc, time::Duration};
 
 use bitcoincore_rpc::bitcoin::Network;
 
@@ -12,7 +12,7 @@ use reqwest::Url;
 use tokio::sync::RwLock;
 use tokio::task;
 
-use crate::api::{run_server, ApiState};
+use crate::api::{run_server, ApiState, load_prepare_tx_cache};
 use crate::indexer::{BitcoinIndexer, IndexerConfig};
 
 /// Command line arguments for the Bitcoin indexer
@@ -144,6 +144,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         panic!("INDEXER_API_KEY must be set");
     }
 
+    let prepare_tx_cache = load_prepare_tx_cache().await;
+
     let api_state = ApiState {
         watched_addresses: indexer.watched_addresses(),
         network: args.parse_network(),
@@ -151,7 +153,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         utxo_url,
         enclave_api_key,
         indexer_api_key,
-        prepare_tx_cache: Arc::new(RwLock::new(HashMap::new())),
+        prepare_tx_cache: Arc::new(RwLock::new(prepare_tx_cache)),
     };
 
     // Run HTTP server in background
