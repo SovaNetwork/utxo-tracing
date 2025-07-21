@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use chrono::{DateTime, Utc};
 
 use bitcoincore_rpc::bitcoin::{address::NetworkUnchecked, Address, Amount, Network};
 use log::{debug, error, info};
@@ -86,13 +88,14 @@ pub struct PrepareTransactionResponse {
     pub txid: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedPrepareResponse {
     pub response: PrepareTransactionResponse,
-    pub created_at: Instant,
+    pub created_at: DateTime<Utc>,
 }
 
 const CACHE_EXPIRY_DURATION: Duration = Duration::from_secs(300);
+const PREPARE_TX_CACHE_FILE: &str = "prepare_tx_cache.json";
 
 #[derive(Deserialize)]
 struct EnclaveSignResponse {
@@ -365,10 +368,20 @@ fn generate_prepare_tx_cache_key(req: &PrepareTransactionRequest) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-async fn clean_expired_cache_entries(cache: &Arc<RwLock<HashMap<String, CachedPrepareResponse>>>) {
-    let mut cache_write = cache.write().await;
-    let now = Instant::now();
-    cache_write.retain(|_, entry| now.duration_since(entry.created_at) < CACHE_EXPIRY_DURATION);
+
+pub async fn persist_prepare_tx_cache(
+    cache: &Arc<RwLock<HashMap<String, CachedPrepareResponse>>>,
+) -> std::io::Result<()> {
+    let cache_read = cache.read().await;
+    let data = serde_json::to_string(&*cache_read).unwrap_or_default();
+    tokio::fs::write(PREPARE_TX_CACHE_FILE, data).await
+}
+
+pub async fn load_prepare_tx_cache() -> HashMap<String, CachedPrepareResponse> {
+    match tokio::fs::read_to_string(PREPARE_TX_CACHE_FILE).await {
+        Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
+        Err(_) => HashMap::new(),
+    }
 }
 
 async fn fetch_selected_utxos_deterministic(
@@ -708,12 +721,15 @@ pub async fn prepare_transaction_handler_idempotent(
     }
 
     let cache_key = generate_prepare_tx_cache_key(&req);
-    clean_expired_cache_entries(&state.prepare_tx_cache).await;
-
     {
         let cache_read = state.prepare_tx_cache.read().await;
         if let Some(cached_entry) = cache_read.get(&cache_key) {
-            if Instant::now().duration_since(cached_entry.created_at) < CACHE_EXPIRY_DURATION {
+            if Utc::now()
+                .signed_duration_since(cached_entry.created_at)
+                .to_std()
+                .unwrap_or_default()
+                < CACHE_EXPIRY_DURATION
+            {
                 info!(
                     "Returning cached prepare transaction result for key: {}",
                     cache_key
@@ -765,9 +781,13 @@ pub async fn prepare_transaction_handler_idempotent(
             cache_key.clone(),
             CachedPrepareResponse {
                 response: response.clone(),
-                created_at: Instant::now(),
+                created_at: Utc::now(),
             },
         );
+    }
+
+    if let Err(e) = persist_prepare_tx_cache(&state.prepare_tx_cache).await {
+        error!("Failed to persist prepare tx cache: {e}");
     }
 
     info!("Cached prepare transaction result for key: {}", cache_key);
