@@ -3,12 +3,13 @@ mod error;
 mod indexer;
 mod utils;
 
-use std::{error::Error, net::IpAddr, time::Duration};
+use std::{collections::HashMap, error::Error, net::IpAddr, sync::Arc, time::Duration};
 
 use bitcoincore_rpc::bitcoin::Network;
 
 use clap::Parser;
 use reqwest::Url;
+use tokio::sync::RwLock;
 use tokio::task;
 
 use crate::api::{run_server, ApiState};
@@ -150,6 +151,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         utxo_url,
         enclave_api_key,
         indexer_api_key,
+        prepare_tx_cache: Arc::new(RwLock::new(HashMap::new())),
     };
 
     // Run HTTP server in background
