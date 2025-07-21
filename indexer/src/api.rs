@@ -93,7 +93,7 @@ pub struct CachedPrepareResponse {
     pub created_at: DateTime<Utc>,
 }
 
-const PREPARE_TX_CACHE_FILE: &str = "prepare_tx_cache.json";
+const PREPARE_TX_CACHE_FILE: &str = "/app/cache/prepare_tx_cache.json";
 
 #[derive(Deserialize)]
 struct EnclaveSignResponse {
