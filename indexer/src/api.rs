@@ -400,34 +400,36 @@ pub async fn clean_expired_cache_entries_and_persist(
 
 pub async fn load_prepare_tx_cache() -> HashMap<String, CachedPrepareResponse> {
     match tokio::fs::read_to_string(PREPARE_TX_CACHE_FILE).await {
-        Ok(contents) => match serde_json::from_str::<HashMap<String, CachedPrepareResponse>>(&contents) {
-            Ok(mut cache) => {
-                let now = Utc::now();
-                cache.retain(|_, entry| {
-                    now.signed_duration_since(entry.created_at)
-                        .to_std()
-                        .unwrap_or_default()
-                        < CACHE_EXPIRY_DURATION
-                });
+        Ok(contents) => {
+            match serde_json::from_str::<HashMap<String, CachedPrepareResponse>>(&contents) {
+                Ok(mut cache) => {
+                    let now = Utc::now();
+                    cache.retain(|_, entry| {
+                        now.signed_duration_since(entry.created_at)
+                            .to_std()
+                            .unwrap_or_default()
+                            < CACHE_EXPIRY_DURATION
+                    });
 
-                info!("Loaded {} cache entries from disk", cache.len());
-                cache
-            }
-            Err(e) => {
-                error!("Failed to parse cache file: {}", e);
-                let backup_name = format!(
-                    "{}.corrupted.{}",
-                    PREPARE_TX_CACHE_FILE,
-                    Utc::now().timestamp()
-                );
-                if let Err(e) = tokio::fs::rename(PREPARE_TX_CACHE_FILE, &backup_name).await {
-                    error!("Failed to backup corrupted cache file: {}", e);
-                } else {
-                    info!("Backed up corrupted cache file to {}", backup_name);
+                    info!("Loaded {} cache entries from disk", cache.len());
+                    cache
                 }
-                HashMap::new()
+                Err(e) => {
+                    error!("Failed to parse cache file: {}", e);
+                    let backup_name = format!(
+                        "{}.corrupted.{}",
+                        PREPARE_TX_CACHE_FILE,
+                        Utc::now().timestamp()
+                    );
+                    if let Err(e) = tokio::fs::rename(PREPARE_TX_CACHE_FILE, &backup_name).await {
+                        error!("Failed to backup corrupted cache file: {}", e);
+                    } else {
+                        info!("Backed up corrupted cache file to {}", backup_name);
+                    }
+                    HashMap::new()
+                }
             }
-        },
+        }
         Err(_) => {
             info!("No cache file found, starting with empty cache");
             HashMap::new()
