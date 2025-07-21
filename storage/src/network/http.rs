@@ -13,10 +13,10 @@ use serde::Deserialize;
 
 fn parse_bitcoin_address(address: &str, expected_network: Network) -> Result<Address, String> {
     let addr =
-        Address::from_str(address).map_err(|e| format!("Invalid Bitcoin address format: {}", e))?;
+        Address::from_str(address).map_err(|e| format!("Invalid Bitcoin address format: {e}"))?;
 
     addr.require_network(expected_network)
-        .map_err(|e| format!("Bitcoin address network mismatch: {}", e))
+        .map_err(|e| format!("Bitcoin address network mismatch: {e}"))
 }
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
@@ -64,9 +64,9 @@ async fn get_latest_block(state: web::Data<AppState>) -> HttpResponse {
             HttpResponse::Ok().json(response)
         }
         Err(e) => {
-            error!("Failed to get latest block: {}", e);
+            error!("Failed to get latest block: {e}");
             HttpResponse::InternalServerError().json(json!({
-                "error": format!("Failed to retrieve latest block: {}", e)
+                "error": format!("Failed to retrieve latest block: {e}")
             }))
         }
     }

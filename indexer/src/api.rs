@@ -1,6 +1,7 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use bitcoincore_rpc::bitcoin::{address::NetworkUnchecked, Address, Amount, Network};
 use log::{debug, error, info};
@@ -8,6 +9,7 @@ use network_shared::StoreSignedTxRequest;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use tokio::sync::RwLock;
 use warp::{http::StatusCode, Filter, Reply};
@@ -23,6 +25,7 @@ pub struct ApiState {
     pub utxo_url: String,
     pub enclave_api_key: String,
     pub indexer_api_key: String,
+    pub prepare_tx_cache: Arc<RwLock<HashMap<String, CachedPrepareResponse>>>,
 }
 
 fn with_state(state: ApiState) -> impl Filter<Extract = (ApiState,), Error = Infallible> + Clone {
@@ -78,10 +81,18 @@ pub struct PrepareTransactionRequest {
     pub fee: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct PrepareTransactionResponse {
     pub txid: String,
 }
+
+#[derive(Debug, Clone)]
+pub struct CachedPrepareResponse {
+    pub response: PrepareTransactionResponse,
+    pub created_at: Instant,
+}
+
+const CACHE_EXPIRY_DURATION: Duration = Duration::from_secs(300);
 
 #[derive(Deserialize)]
 struct EnclaveSignResponse {
@@ -91,11 +102,11 @@ struct EnclaveSignResponse {
 fn parse_bitcoin_address(addr: &str, network: Network) -> Result<Address, String> {
     let address_unchecked: Address<NetworkUnchecked> = addr
         .parse()
-        .map_err(|e| format!("Address parse error: {:?}", e))?;
+        .map_err(|e| format!("Address parse error: {e:?}"))?;
 
     address_unchecked
         .require_network(network)
-        .map_err(|e| format!("Network mismatch: {:?}", e))
+        .map_err(|e| format!("Network mismatch: {e:?}"))
 }
 
 pub async fn watch_address_handler(
@@ -345,6 +356,112 @@ async fn fetch_selected_utxos(
     ))
 }
 
+fn generate_prepare_tx_cache_key(req: &PrepareTransactionRequest) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(req.block_height.to_le_bytes());
+    hasher.update(req.amount.to_le_bytes());
+    hasher.update(req.fee.to_le_bytes());
+    hasher.update(req.destination.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+async fn clean_expired_cache_entries(cache: &Arc<RwLock<HashMap<String, CachedPrepareResponse>>>) {
+    let mut cache_write = cache.write().await;
+    let now = Instant::now();
+    cache_write.retain(|_, entry| now.duration_since(entry.created_at) < CACHE_EXPIRY_DURATION);
+}
+
+async fn fetch_selected_utxos_deterministic(
+    state: &ApiState,
+    block_height: i32,
+    total_needed: i64,
+) -> Result<Vec<network_shared::UtxoUpdate>, (serde_json::Value, StatusCode)> {
+    let client = reqwest::Client::new();
+    let mut selected_utxos = Vec::new();
+    let mut total_selected = 0;
+
+    let watched_addresses = {
+        let addr_set = state.watched_addresses.read().await;
+        let mut addresses: Vec<_> = addr_set.iter().cloned().collect();
+        addresses.sort_by_key(|a| a.to_string());
+        addresses
+    };
+
+    for addr in watched_addresses.iter() {
+        if total_selected >= total_needed {
+            break;
+        }
+
+        let remaining_needed = total_needed - total_selected;
+        let url = format!(
+            "{}/select-utxos/block/{}/address/{}/amount/{}",
+            state.utxo_url, block_height, addr, remaining_needed
+        );
+
+        let resp = client.get(&url).send().await.map_err(|e| {
+            error!("Failed to request UTXOs: {}", e);
+            (
+                json!({ "error": "Failed to fetch UTXOs" }),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let err_text = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            error!("UTXO service error (status {}): {}", status, err_text);
+            return Err((
+                json!({ "error": format!("UTXO service error: {}", err_text) }),
+                StatusCode::BAD_GATEWAY,
+            ));
+        }
+
+        let value = resp.json::<serde_json::Value>().await.map_err(|e| {
+            error!("Failed to parse UTXO response: {}", e);
+            (
+                json!({ "error": "Invalid UTXO response" }),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
+
+        let utxos: Vec<network_shared::UtxoUpdate> =
+            serde_json::from_value(value.get("selected_utxos").cloned().unwrap_or_default())
+                .map_err(|e| {
+                    error!("UTXO JSON structure incorrect: {}", e);
+                    (
+                        json!({ "error": "Malformed UTXO data" }),
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                    )
+                })?;
+
+        for utxo in utxos {
+            total_selected += utxo.amount;
+            selected_utxos.push(utxo);
+
+            if total_selected >= total_needed {
+                debug!("Collected sufficient UTXOs: {}", total_selected);
+                break;
+            }
+        }
+    }
+
+    if total_selected < total_needed {
+        error!(
+            "Insufficient UTXOs: Needed {}, got {}",
+            total_needed, total_selected
+        );
+        return Err((
+            json!({ "error": "Insufficient funds across watched addresses" }),
+            StatusCode::BAD_REQUEST,
+        ));
+    }
+
+    Ok(selected_utxos)
+}
+
 async fn store_signed_tx(
     state: &ApiState,
     req: &StoreSignedTxRequest,
@@ -580,7 +697,7 @@ pub async fn sign_transaction_handler(
     }
 }
 
-pub async fn prepare_transaction_handler(
+pub async fn prepare_transaction_handler_idempotent(
     api_key: String,
     req: PrepareTransactionRequest,
     state: ApiState,
@@ -589,14 +706,35 @@ pub async fn prepare_transaction_handler(
         let resp = warp::reply::json(&json!({ "error": "Unauthorized" }));
         return Ok(warp::reply::with_status(resp, StatusCode::UNAUTHORIZED));
     }
+
+    let cache_key = generate_prepare_tx_cache_key(&req);
+    clean_expired_cache_entries(&state.prepare_tx_cache).await;
+
+    {
+        let cache_read = state.prepare_tx_cache.read().await;
+        if let Some(cached_entry) = cache_read.get(&cache_key) {
+            if Instant::now().duration_since(cached_entry.created_at) < CACHE_EXPIRY_DURATION {
+                info!(
+                    "Returning cached prepare transaction result for key: {}",
+                    cache_key
+                );
+                return Ok(warp::reply::with_status(
+                    warp::reply::json(&cached_entry.response),
+                    StatusCode::OK,
+                ));
+            }
+        }
+    }
+
     let total_needed = req.amount + req.fee;
 
-    let selected_utxos = match fetch_selected_utxos(&state, req.block_height, total_needed).await {
-        Ok(list) => list,
-        Err((msg, status)) => {
-            return Ok(warp::reply::with_status(warp::reply::json(&msg), status));
-        }
-    };
+    let selected_utxos =
+        match fetch_selected_utxos_deterministic(&state, req.block_height, total_needed).await {
+            Ok(list) => list,
+            Err((msg, status)) => {
+                return Ok(warp::reply::with_status(warp::reply::json(&msg), status));
+            }
+        };
 
     info!(
         "Building transaction to {} for {} sats using {} UTXOs",
@@ -619,9 +757,23 @@ pub async fn prepare_transaction_handler(
     };
 
     let txid = unsigned_tx.txid().to_string();
+    let response = PrepareTransactionResponse { txid };
+
+    {
+        let mut cache_write = state.prepare_tx_cache.write().await;
+        cache_write.insert(
+            cache_key.clone(),
+            CachedPrepareResponse {
+                response: response.clone(),
+                created_at: Instant::now(),
+            },
+        );
+    }
+
+    info!("Cached prepare transaction result for key: {}", cache_key);
 
     Ok(warp::reply::with_status(
-        warp::reply::json(&PrepareTransactionResponse { txid }),
+        warp::reply::json(&response),
         StatusCode::OK,
     ))
 }
@@ -674,7 +826,7 @@ pub async fn run_server(host: &str, port: u16, state: ApiState) {
         .and(warp::header::<String>("x-api-key"))
         .and(json_prepare_tx)
         .and(with_state(state.clone()))
-        .and_then(prepare_transaction_handler);
+        .and_then(prepare_transaction_handler_idempotent);
 
     let sign_tx_route = warp::post()
         .and(warp::path("sign-transaction"))

@@ -44,8 +44,7 @@ async fn handle_socket_connection(stream: UnixStream, db: Arc<UtxoDatabase>) -> 
     if let Err(e) = stream.read_exact(&mut size_buf).await {
         // Handle gracefully disconnects or short reads
         return Err(std::io::Error::other(format!(
-            "Failed to read message size: {}",
-            e
+            "Failed to read message size: {e}",
         )));
     }
 
@@ -55,8 +54,7 @@ async fn handle_socket_connection(stream: UnixStream, db: Arc<UtxoDatabase>) -> 
     let mut data = vec![0u8; size];
     if let Err(e) = stream.read_exact(&mut data).await {
         return Err(std::io::Error::other(format!(
-            "Failed to read message data: {}",
-            e
+            "Failed to read message data: {e}",
         )));
     }
 
@@ -65,8 +63,7 @@ async fn handle_socket_connection(stream: UnixStream, db: Arc<UtxoDatabase>) -> 
         Ok(msg) => msg,
         Err(e) => {
             return Err(std::io::Error::other(format!(
-                "Failed to deserialize message: {}",
-                e
+                "Failed to deserialize message: {e}",
             )));
         }
     };
@@ -79,12 +76,12 @@ async fn handle_socket_connection(stream: UnixStream, db: Arc<UtxoDatabase>) -> 
 
             // Store block information
             if let Err(e) = db.store_block(height, &update.hash, update.timestamp) {
-                error!("Error storing block info: {}", e);
+                error!("Error storing block info: {e}");
             }
 
             // Process the update
             if let Err(e) = db.process_block(update).await {
-                error!("Error processing block: {}", e);
+                error!("Error processing block: {e}");
             }
 
             // Send acknowledgment
@@ -100,7 +97,7 @@ async fn handle_socket_connection(stream: UnixStream, db: Arc<UtxoDatabase>) -> 
 
             // Handle the reorg
             if let Err(e) = db.revert_to_height(fork_height).await {
-                error!("Error handling reorg: {}", e);
+                error!("Error handling reorg: {e}");
             }
         }
         network_shared::NetworkMessage::GetBlockHash { height } => {
@@ -131,7 +128,7 @@ async fn handle_socket_connection(stream: UnixStream, db: Arc<UtxoDatabase>) -> 
             );
 
             if let Err(e) = db.update_finality_status(current_height).await {
-                error!("Error updating finality status: {}", e);
+                error!("Error updating finality status: {e}");
             }
         }
         _ => {
