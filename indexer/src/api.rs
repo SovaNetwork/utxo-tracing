@@ -28,7 +28,6 @@ pub struct ApiState {
     pub enclave_api_key: String,
     pub indexer_api_key: String,
     pub prepare_tx_cache: Arc<RwLock<HashMap<String, CachedPrepareResponse>>>,
-    pub shutdown_tx: Option<tokio::sync::broadcast::Sender<()>>,
 }
 
 fn with_state(state: ApiState) -> impl Filter<Extract = (ApiState,), Error = Infallible> + Clone {
@@ -84,7 +83,7 @@ pub struct PrepareTransactionRequest {
     pub fee: i64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PrepareTransactionResponse {
     pub txid: String,
 }
