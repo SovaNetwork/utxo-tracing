@@ -16,7 +16,7 @@ fn parse_bitcoin_address(address: &str, expected_network: Network) -> Result<Add
         Address::from_str(address).map_err(|e| format!("Invalid Bitcoin address format: {e}"))?;
 
     addr.require_network(expected_network)
-        .map_err(|e| format!("Bitcoin address network mismatch: {}", e))
+        .map_err(|e| format!("Bitcoin address network mismatch: {e}"))
 }
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
