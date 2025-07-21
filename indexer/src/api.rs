@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::sync::Arc;
-use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 
@@ -367,15 +366,6 @@ fn generate_prepare_tx_cache_key(req: &PrepareTransactionRequest) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-
-pub async fn persist_prepare_tx_cache(
-    cache: &Arc<RwLock<HashMap<String, CachedPrepareResponse>>>,
-) -> std::io::Result<()> {
-    let cache_read = cache.read().await;
-    let data = serde_json::to_string(&*cache_read).unwrap_or_default();
-    tokio::fs::write(PREPARE_TX_CACHE_FILE, data).await
-}
-
 pub async fn load_prepare_tx_cache() -> HashMap<String, CachedPrepareResponse> {
     match tokio::fs::read_to_string(PREPARE_TX_CACHE_FILE).await {
         Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
@@ -724,7 +714,10 @@ pub async fn prepare_transaction_handler_idempotent(
         let cache_read = state.prepare_tx_cache.read().await;
         if let Some(cached_entry) = cache_read.get(&cache_key) {
             // Always return cached result if it exists (idempotent)
-            info!("Returning cached prepare transaction result for key: {}", cache_key);
+            info!(
+                "Returning cached prepare transaction result for key: {}",
+                cache_key
+            );
             return Ok(warp::reply::with_status(
                 warp::reply::json(&cached_entry.response),
                 StatusCode::OK,

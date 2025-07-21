@@ -12,7 +12,7 @@ use reqwest::Url;
 use tokio::sync::RwLock;
 use tokio::task;
 
-use crate::api::{run_server, ApiState, load_prepare_tx_cache};
+use crate::api::{load_prepare_tx_cache, run_server, ApiState};
 use crate::indexer::{BitcoinIndexer, IndexerConfig};
 
 /// Command line arguments for the Bitcoin indexer
