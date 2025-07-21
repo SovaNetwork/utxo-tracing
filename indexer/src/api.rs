@@ -93,7 +93,7 @@ pub struct CachedPrepareResponse {
     pub created_at: DateTime<Utc>,
 }
 
-const PREPARE_TX_CACHE_FILE: &str = "prepare_tx_cache.json";
+const PREPARE_TX_CACHE_FILE: &str = "/app/cache/prepare_tx_cache.json";
 
 #[derive(Deserialize)]
 struct EnclaveSignResponse {
@@ -297,7 +297,7 @@ async fn fetch_selected_utxos(
         );
 
         let resp = client.get(&url).send().await.map_err(|e| {
-            error!("Failed to request UTXOs: {}", e);
+            error!("Failed to request UTXOs: {e}");
             (
                 json!({ "error": "Failed to fetch UTXOs" }),
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -371,6 +371,17 @@ pub async fn load_prepare_tx_cache() -> HashMap<String, CachedPrepareResponse> {
         Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
         Err(_) => HashMap::new(),
     }
+}
+
+pub async fn save_prepare_tx_cache(
+    cache: &tokio::sync::RwLock<HashMap<String, CachedPrepareResponse>>,
+) -> std::io::Result<()> {
+    let data = {
+        let cache_read = cache.read().await;
+        serde_json::to_vec(&*cache_read)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
+    };
+    tokio::fs::write(PREPARE_TX_CACHE_FILE, data).await
 }
 
 async fn fetch_selected_utxos_deterministic(
@@ -767,6 +778,10 @@ pub async fn prepare_transaction_handler_idempotent(
                 created_at: Utc::now(),
             },
         );
+    }
+
+    if let Err(e) = save_prepare_tx_cache(&state.prepare_tx_cache).await {
+        error!("Failed to save prepare transaction cache: {}", e);
     }
 
     info!("Cached prepare transaction result for key: {}", cache_key);
