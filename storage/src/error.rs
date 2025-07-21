@@ -44,7 +44,7 @@ impl fmt::Display for StorageError {
                 f,
                 "Insufficient funds: available={available}, required={required}",
             ),
-            StorageError::InvalidAddress(addr) => write!(f, "Invalid address: {}", addr),
+            StorageError::InvalidAddress(addr) => write!(f, "Invalid address: {addr}"),
             StorageError::InvalidBlockHeight(height) => {
                 write!(f, "Invalid block height: {height}")
             }
