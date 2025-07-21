@@ -28,6 +28,7 @@ pub struct ApiState {
     pub enclave_api_key: String,
     pub indexer_api_key: String,
     pub prepare_tx_cache: Arc<RwLock<HashMap<String, CachedPrepareResponse>>>,
+    pub shutdown_tx: Option<tokio::sync::broadcast::Sender<()>>,
 }
 
 fn with_state(state: ApiState) -> impl Filter<Extract = (ApiState,), Error = Infallible> + Clone {
@@ -96,6 +97,7 @@ pub struct CachedPrepareResponse {
 
 const CACHE_EXPIRY_DURATION: Duration = Duration::from_secs(300);
 const PREPARE_TX_CACHE_FILE: &str = "prepare_tx_cache.json";
+const PREPARE_TX_CACHE_TEMP: &str = "prepare_tx_cache.json.tmp";
 
 #[derive(Deserialize)]
 struct EnclaveSignResponse {
@@ -368,19 +370,89 @@ fn generate_prepare_tx_cache_key(req: &PrepareTransactionRequest) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-
-pub async fn persist_prepare_tx_cache(
+pub async fn clean_expired_cache_entries_and_persist(
     cache: &Arc<RwLock<HashMap<String, CachedPrepareResponse>>>,
 ) -> std::io::Result<()> {
-    let cache_read = cache.read().await;
-    let data = serde_json::to_string(&*cache_read).unwrap_or_default();
-    tokio::fs::write(PREPARE_TX_CACHE_FILE, data).await
+    let mut cache_write = cache.write().await;
+    let now = Utc::now();
+    let initial_size = cache_write.len();
+
+    cache_write.retain(|_, entry| {
+        now.signed_duration_since(entry.created_at)
+            .to_std()
+            .unwrap_or_default()
+            < CACHE_EXPIRY_DURATION
+    });
+
+    let removed = initial_size - cache_write.len();
+    if removed > 0 {
+        info!("Cleaned up {} expired cache entries", removed);
+    }
+
+    let data = serde_json::to_string(&*cache_write)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+    tokio::fs::write(PREPARE_TX_CACHE_TEMP, data).await?;
+    tokio::fs::rename(PREPARE_TX_CACHE_TEMP, PREPARE_TX_CACHE_FILE).await?;
+
+    Ok(())
 }
 
 pub async fn load_prepare_tx_cache() -> HashMap<String, CachedPrepareResponse> {
     match tokio::fs::read_to_string(PREPARE_TX_CACHE_FILE).await {
-        Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
-        Err(_) => HashMap::new(),
+        Ok(contents) => match serde_json::from_str::<HashMap<String, CachedPrepareResponse>>(&contents) {
+            Ok(mut cache) => {
+                let now = Utc::now();
+                cache.retain(|_, entry| {
+                    now.signed_duration_since(entry.created_at)
+                        .to_std()
+                        .unwrap_or_default()
+                        < CACHE_EXPIRY_DURATION
+                });
+
+                info!("Loaded {} cache entries from disk", cache.len());
+                cache
+            }
+            Err(e) => {
+                error!("Failed to parse cache file: {}", e);
+                let backup_name = format!(
+                    "{}.corrupted.{}",
+                    PREPARE_TX_CACHE_FILE,
+                    Utc::now().timestamp()
+                );
+                if let Err(e) = tokio::fs::rename(PREPARE_TX_CACHE_FILE, &backup_name).await {
+                    error!("Failed to backup corrupted cache file: {}", e);
+                } else {
+                    info!("Backed up corrupted cache file to {}", backup_name);
+                }
+                HashMap::new()
+            }
+        },
+        Err(_) => {
+            info!("No cache file found, starting with empty cache");
+            HashMap::new()
+        }
+    }
+}
+
+pub async fn start_cache_persistence_task(
+    cache: Arc<RwLock<HashMap<String, CachedPrepareResponse>>>,
+) {
+    let mut interval = tokio::time::interval(Duration::from_secs(60));
+
+    loop {
+        interval.tick().await;
+
+        {
+            let cache_read = cache.read().await;
+            if cache_read.is_empty() {
+                continue;
+            }
+        }
+
+        if let Err(e) = clean_expired_cache_entries_and_persist(&cache).await {
+            error!("Failed to persist cache: {}", e);
+        }
     }
 }
 
@@ -740,6 +812,16 @@ pub async fn prepare_transaction_handler_idempotent(
                 ));
             }
         }
+
+        if cache_read.len() > 100 {
+            drop(cache_read);
+            let cache_clone = state.prepare_tx_cache.clone();
+            tokio::spawn(async move {
+                if let Err(e) = clean_expired_cache_entries_and_persist(&cache_clone).await {
+                    error!("Failed to cleanup and persist cache: {}", e);
+                }
+            });
+        }
     }
 
     let total_needed = req.amount + req.fee;
@@ -784,10 +866,6 @@ pub async fn prepare_transaction_handler_idempotent(
                 created_at: Utc::now(),
             },
         );
-    }
-
-    if let Err(e) = persist_prepare_tx_cache(&state.prepare_tx_cache).await {
-        error!("Failed to persist prepare tx cache: {e}");
     }
 
     info!("Cached prepare transaction result for key: {}", cache_key);

@@ -154,7 +154,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         enclave_api_key,
         indexer_api_key,
         prepare_tx_cache: Arc::new(RwLock::new(prepare_tx_cache)),
+        shutdown_tx: None,
     };
+
+    let cache_clone = api_state.prepare_tx_cache.clone();
+    tokio::spawn(async move {
+        crate::api::start_cache_persistence_task(cache_clone).await;
+    });
 
     // Run HTTP server in background
     let api_host = args.api_host.clone();
