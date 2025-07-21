@@ -19,8 +19,8 @@ impl From<bincode::Error> for TransportError {
 impl std::fmt::Display for TransportError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TransportError::IoError(e) => write!(f, "IO error: {}", e),
-            TransportError::SerializationError(e) => write!(f, "Serialization error: {}", e),
+            TransportError::IoError(e) => write!(f, "IO error: {e}"),
+            TransportError::SerializationError(e) => write!(f, "Serialization error: {e}"),
         }
     }
 }

@@ -30,29 +30,28 @@ pub enum StorageError {
 impl fmt::Display for StorageError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            StorageError::IoError(s) => write!(f, "I/O error: {}", s),
+            StorageError::IoError(s) => write!(f, "I/O error: {s}"),
             StorageError::DatabaseConnectionFailed(s) => {
-                write!(f, "Database connection failed: {}", s)
+                write!(f, "Database connection failed: {s}")
             }
-            StorageError::DatabaseQueryFailed(s) => write!(f, "Database query failed: {}", s),
-            StorageError::MigrationFailed(s) => write!(f, "Migration failed: {}", s),
-            StorageError::BlockNotFound(height) => write!(f, "Block not found: height={}", height),
+            StorageError::DatabaseQueryFailed(s) => write!(f, "Database query failed: {s}"),
+            StorageError::MigrationFailed(s) => write!(f, "Migration failed: {s}"),
+            StorageError::BlockNotFound(height) => write!(f, "Block not found: height={height}"),
             StorageError::InsufficientFunds {
                 available,
                 required,
             } => write!(
                 f,
-                "Insufficient funds: available={}, required={}",
-                available, required
+                "Insufficient funds: available={available}, required={required}",
             ),
             StorageError::InvalidAddress(addr) => write!(f, "Invalid address: {}", addr),
             StorageError::InvalidBlockHeight(height) => {
-                write!(f, "Invalid block height: {}", height)
+                write!(f, "Invalid block height: {height}")
             }
-            StorageError::InvalidAmount(amount) => write!(f, "Invalid amount: {}", amount),
-            StorageError::SerializationFailed(s) => write!(f, "Serialization failed: {}", s),
-            StorageError::DeserializationFailed(s) => write!(f, "Deserialization failed: {}", s),
-            StorageError::UnexpectedError(s) => write!(f, "Unexpected error: {}", s),
+            StorageError::InvalidAmount(amount) => write!(f, "Invalid amount: {amount}"),
+            StorageError::SerializationFailed(s) => write!(f, "Serialization failed: {s}"),
+            StorageError::DeserializationFailed(s) => write!(f, "Deserialization failed: {s}"),
+            StorageError::UnexpectedError(s) => write!(f, "Unexpected error: {s}"),
         }
     }
 }

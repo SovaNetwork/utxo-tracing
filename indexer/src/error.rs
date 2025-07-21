@@ -14,10 +14,10 @@ pub enum IndexerError {
 impl fmt::Display for IndexerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            IndexerError::BitcoinRPC(e) => write!(f, "Bitcoin RPC error: {}", e),
-            IndexerError::Network(e) => write!(f, "Network error: {}", e),
+            IndexerError::BitcoinRPC(e) => write!(f, "Bitcoin RPC error: {e}"),
+            IndexerError::Network(e) => write!(f, "Network error: {e}"),
             IndexerError::InvalidTimestamp => write!(f, "Invalid timestamp"),
-            IndexerError::InvalidStartBlock(msg) => write!(f, "Invalid start block: {}", msg),
+            IndexerError::InvalidStartBlock(msg) => write!(f, "Invalid start block: {msg}"),
         }
     }
 }
