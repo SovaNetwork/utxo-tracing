@@ -30,8 +30,11 @@ RUN apt-get update && \
 COPY --from=builder /usr/src/app/target/release/indexer /usr/local/bin/
 RUN chmod +x /usr/local/bin/indexer
 
-# Create a non-root user with specific UID
-RUN useradd -m -u 1001 service
+# Create a non-root user with specific UID and create cache directory
+RUN useradd -m -u 1001 service && \
+    mkdir -p /app/cache && \
+    chown -R service:service /app/cache
+
 USER service
 
 # Set environment variables
