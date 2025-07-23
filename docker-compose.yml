@@ -35,7 +35,7 @@ services:
     environment:
       - RUST_LOG=${RUST_LOG:-info}
       - NETWORK=${NETWORK:-regtest}
-      - RPC_HOST=${RPC_HOST:-bitcoin-regtest:18443}
+      - RPC_HOST=${RPC_HOST:-http://bitcoin-regtest:18443}
       - RPC_USER=${RPC_USER:-user}
       - RPC_PASSWORD=${RPC_PASSWORD:-password}
       - SOCKET_PATH=${SOCKET_PATH:-/tmp/network-utxos.sock}

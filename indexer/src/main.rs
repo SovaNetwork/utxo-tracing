@@ -37,8 +37,8 @@ pub struct Args {
 
     #[arg(
         long,
-        default_value = "localhost:18443",
-        help = "Bitcoin RPC host with optional port"
+        default_value = "http://localhost:18443",
+        help = "Bitcoin RPC host url"
     )]
     pub rpc_host: String,
 
