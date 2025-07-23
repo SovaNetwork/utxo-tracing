@@ -43,7 +43,7 @@ ENV RUST_LOG=info
 # Set default values for arguments
 ENV SOCKET_PATH="/tmp/network-utxos.sock" \
     NETWORK="regtest" \
-    RPC_HOST="bitcoin:18443" \
+    RPC_HOST="http://bitcoin:18443" \
     RPC_USER="user" \
     RPC_PASSWORD="password" \
     START_HEIGHT=0 \
