@@ -378,8 +378,7 @@ pub async fn save_prepare_tx_cache(
 ) -> std::io::Result<()> {
     let data = {
         let cache_read = cache.read().await;
-        serde_json::to_vec(&*cache_read)
-            .map_err(|e| std::io::Error::other(e))?
+        serde_json::to_vec(&*cache_read).map_err(|e| std::io::Error::other(e))?
     };
     tokio::fs::write(PREPARE_TX_CACHE_FILE, data).await
 }
