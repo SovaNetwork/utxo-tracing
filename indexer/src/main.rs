@@ -35,11 +35,12 @@ pub struct Args {
     #[arg(long, default_value = "password")]
     pub rpc_password: String,
 
-    #[arg(long, default_value = "localhost")]
+    #[arg(
+        long,
+        default_value = "localhost:18443",
+        help = "Bitcoin RPC host with optional port"
+    )]
     pub rpc_host: String,
-
-    #[arg(long, default_value = "18443")]
-    pub rpc_port: u16,
 
     #[arg(long, default_value = "0")]
     pub start_height: i32,
@@ -124,7 +125,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         rpc_user: args.rpc_user.clone(),
         rpc_password: args.rpc_password.clone(),
         rpc_host: args.rpc_host.clone(),
-        rpc_port: args.rpc_port,
         socket_path: args.socket_path.clone(),
         start_height: args.start_height,
         max_blocks_per_batch: args.max_blocks_per_batch,

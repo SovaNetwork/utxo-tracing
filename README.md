@@ -99,8 +99,7 @@ docker-compose up -d
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
 | RUST_LOG | Log level | info |
-| RPC_HOST | Bitcoin RPC host | bitcoin |
-| RPC_PORT | Bitcoin RPC port | 18443 |
+| RPC_HOST | Bitcoin RPC host with optional port | bitcoin:18443 |
 | RPC_USER | Bitcoin RPC username | user |
 | RPC_PASSWORD | Bitcoin RPC password | password |
 | NETWORK | Bitcoin network (mainnet, testnet, regtest, signet) | regtest |

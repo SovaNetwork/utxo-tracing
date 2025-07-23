@@ -20,8 +20,8 @@ pub struct IndexerConfig {
     pub network: Network,
     pub rpc_user: String,
     pub rpc_password: String,
+    /// RPC host with optional port (e.g. "localhost:18443")
     pub rpc_host: String,
-    pub rpc_port: u16,
     pub socket_path: String,
     pub start_height: i32,
     pub max_blocks_per_batch: i32,
@@ -44,7 +44,7 @@ pub struct BitcoinIndexer {
 impl BitcoinIndexer {
     /// Creates a new BitcoinIndexer instance
     pub fn new(config: IndexerConfig) -> Result<Self> {
-        let rpc_url = format!("http://{}:{}", config.rpc_host, config.rpc_port);
+        let rpc_url = format!("http://{}", config.rpc_host);
         let auth = Auth::UserPass(config.rpc_user.clone(), config.rpc_password.clone());
         let rpc_client = Client::new(&rpc_url, auth).map_err(IndexerError::BitcoinRPC)?;
 
