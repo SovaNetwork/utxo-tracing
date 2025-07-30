@@ -70,8 +70,12 @@ services:
     profiles: [local-bitcoin, external-bitcoin]
 
   network-utxos:
-    image: ghcr.io/sovanetwork/network-utxos:v0.1.7
+    # image: ghcr.io/sovanetwork/network-utxos:v0.1.7
+    build:
+      context: .
+      dockerfile: ./storage/Dockerfile
     environment:
+      - NETWORK=${BITCOIN_NETWORK}
       - HOST=${UTXO_HOST}
       - PORT=${UTXO_PORT}
       - LOG_LEVEL=${LOG_LEVEL}

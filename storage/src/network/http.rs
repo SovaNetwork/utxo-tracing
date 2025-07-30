@@ -1,7 +1,7 @@
 use actix_web::{web, HttpResponse};
 use serde_json::json;
 use tracing::log::error;
-use tracing::{info, instrument};
+use tracing::{debug, info, instrument};
 
 use bitcoin::{Address, Network};
 use std::str::FromStr;
@@ -360,7 +360,7 @@ async fn get_utxo_by_outpoint(
     path: web::Path<(String, i32)>,
 ) -> HttpResponse {
     let (txid, vout) = path.into_inner();
-    info!(%txid, vout, "Fetching UTXO by outpoint");
+    debug!(%txid, vout, "Fetching UTXO by outpoint");
 
     match state.db.get_utxo_by_outpoint(&txid, vout) {
         Ok(Some(utxo)) => HttpResponse::Ok().json(json!({ "utxo": utxo })),
