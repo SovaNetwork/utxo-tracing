@@ -8,14 +8,15 @@ use bitcoincore_rpc::json::{GetBlockResult, GetTxOutResult};
 use bitcoincore_rpc::{Auth, RpcApi};
 use chrono::{DateTime, Utc};
 use log::{error, info};
+use lru::LruCache;
 use network_shared::{BlockUpdate, SocketTransport, UtxoUpdate, FINALITY_CONFIRMATIONS};
 use reqwest::Client as HttpClient;
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
-use lru::LruCache;
 
 use crate::error::{IndexerError, Result as IndexerResult};
 use crate::utils::{determine_script_type, extract_public_key};
@@ -321,8 +322,8 @@ impl BitcoinIndexer {
             utxo_url: config.utxo_url,
             http_client,
             watched_addresses: Arc::new(RwLock::new(HashSet::new())),
-            tx_cache: Mutex::new(LruCache::new(10_000)),
-            utxo_cache: Mutex::new(LruCache::new(50_000)),
+            tx_cache: Mutex::new(LruCache::new(NonZeroUsize::new(10_000).unwrap())),
+            utxo_cache: Mutex::new(LruCache::new(NonZeroUsize::new(50_000).unwrap())),
         })
     }
 
@@ -366,7 +367,9 @@ impl BitcoinIndexer {
                         if resp.status().is_success() {
                             if let Ok(value) = resp.json::<JsonValue>().await {
                                 if let Some(utxo_val) = value.get("utxo") {
-                                    if let Ok(utxo) = serde_json::from_value::<UtxoUpdate>(utxo_val.clone()) {
+                                    if let Ok(utxo) =
+                                        serde_json::from_value::<UtxoUpdate>(utxo_val.clone())
+                                    {
                                         return ((txid_c, vout_c), Some(utxo));
                                     }
                                 }
@@ -535,13 +538,16 @@ impl BitcoinIndexer {
             if !is_coinbase {
                 for input in tx.input.iter() {
                     if !input.previous_output.is_null() {
-                        needed_outpoints.insert((input.previous_output.txid, input.previous_output.vout));
+                        needed_outpoints
+                            .insert((input.previous_output.txid, input.previous_output.vout));
                     }
                 }
             }
         }
 
-        let fetched = self.fetch_tracked_utxos_batch(&needed_outpoints.iter().cloned().collect::<Vec<_>>()).await;
+        let fetched = self
+            .fetch_tracked_utxos_batch(&needed_outpoints.iter().cloned().collect::<Vec<_>>())
+            .await;
 
         for (tx_index, tx) in block.txdata.iter().enumerate() {
             let is_coinbase = tx_index == 0;
