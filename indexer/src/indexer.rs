@@ -3,9 +3,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bitcoincore_rpc::bitcoin::consensus;
 use bitcoincore_rpc::bitcoin::{Address, Block, BlockHash, Network, ScriptBuf};
-use bitcoincore_rpc::{Auth, RpcApi};
-use bitcoincore_rpc::bitcoin::{Txid, Transaction};
+use bitcoincore_rpc::bitcoin::{Transaction, Txid};
 use bitcoincore_rpc::json::{GetBlockResult, GetTxOutResult};
+use bitcoincore_rpc::{Auth, RpcApi};
 use chrono::{DateTime, Utc};
 use log::{error, info};
 use network_shared::{BlockUpdate, SocketTransport, UtxoUpdate, FINALITY_CONFIRMATIONS};
@@ -25,10 +25,7 @@ pub trait BitcoinRpcClient {
     async fn get_block_count(&self) -> IndexerResult<u64>;
     async fn get_block_hash(&self, height: u64) -> IndexerResult<BlockHash>;
     async fn get_block(&self, block_hash: &BlockHash) -> IndexerResult<Block>;
-    async fn get_block_info(
-        &self,
-        block_hash: &BlockHash,
-    ) -> IndexerResult<GetBlockResult>;
+    async fn get_block_info(&self, block_hash: &BlockHash) -> IndexerResult<GetBlockResult>;
     async fn get_tx_out(
         &self,
         txid: &Txid,
@@ -68,10 +65,7 @@ impl BitcoinRpcClient for BitcoinCoreRpcClient {
         Ok(self.client.get_block(block_hash)?)
     }
 
-    async fn get_block_info(
-        &self,
-        block_hash: &BlockHash,
-    ) -> IndexerResult<GetBlockResult> {
+    async fn get_block_info(&self, block_hash: &BlockHash) -> IndexerResult<GetBlockResult> {
         Ok(self.client.get_block_info(block_hash)?)
     }
 
@@ -158,9 +152,10 @@ impl BitcoinRpcClient for ExternalRpcClient {
         let res = self
             .make_rpc_call("getblockhash", vec![serde_json::json!(height)])
             .await?;
-        let hash_str: String = serde_json::from_value(res)
-            .map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
-        Ok(BlockHash::from_str(&hash_str).map_err(|e| IndexerError::RpcClientError(e.to_string()))?)
+        let hash_str: String =
+            serde_json::from_value(res).map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
+        Ok(BlockHash::from_str(&hash_str)
+            .map_err(|e| IndexerError::RpcClientError(e.to_string()))?)
     }
 
     async fn get_block(&self, block_hash: &BlockHash) -> IndexerResult<Block> {
@@ -173,16 +168,14 @@ impl BitcoinRpcClient for ExternalRpcClient {
                 ],
             )
             .await?;
-        let hex: String = serde_json::from_value(res)
-            .map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
+        let hex: String =
+            serde_json::from_value(res).map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
         let bytes = hex::decode(hex).map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
-        Ok(consensus::deserialize(&bytes).map_err(|e| IndexerError::RpcClientError(e.to_string()))?)
+        Ok(consensus::deserialize(&bytes)
+            .map_err(|e| IndexerError::RpcClientError(e.to_string()))?)
     }
 
-    async fn get_block_info(
-        &self,
-        block_hash: &BlockHash,
-    ) -> IndexerResult<GetBlockResult> {
+    async fn get_block_info(&self, block_hash: &BlockHash) -> IndexerResult<GetBlockResult> {
         let res = self
             .make_rpc_call(
                 "getblock",
@@ -209,7 +202,9 @@ impl BitcoinRpcClient for ExternalRpcClient {
         if res.is_null() {
             return Ok(None);
         }
-        Ok(Some(serde_json::from_value(res).map_err(|e| IndexerError::RpcClientError(e.to_string()))?))
+        Ok(Some(serde_json::from_value(res).map_err(|e| {
+            IndexerError::RpcClientError(e.to_string())
+        })?))
     }
 
     async fn get_raw_transaction(
@@ -225,10 +220,11 @@ impl BitcoinRpcClient for ExternalRpcClient {
             params.push(serde_json::json!(hash.to_string()));
         }
         let res = self.make_rpc_call("getrawtransaction", params).await?;
-        let hex: String = serde_json::from_value(res)
-            .map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
+        let hex: String =
+            serde_json::from_value(res).map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
         let bytes = hex::decode(hex).map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
-        Ok(consensus::deserialize(&bytes).map_err(|e| IndexerError::RpcClientError(e.to_string()))?)
+        Ok(consensus::deserialize(&bytes)
+            .map_err(|e| IndexerError::RpcClientError(e.to_string()))?)
     }
 }
 
@@ -373,14 +369,56 @@ impl BitcoinIndexer {
         height: i32,
         block_time: DateTime<Utc>,
     ) -> IndexerResult<Vec<UtxoUpdate>> {
+        let start_time = std::time::Instant::now();
+
+        // If there are no watched addresses, skip processing entirely
+        let watch_set = self.watched_addresses.read().await;
+        if watch_set.is_empty() {
+            return Ok(Vec::new());
+        }
+        drop(watch_set);
+
         let mut utxo_updates = Vec::new();
+        let mut input_count = 0usize;
+        let mut output_count = 0usize;
 
         for (tx_index, tx) in block.txdata.iter().enumerate() {
-            // First transaction in a block is always the coinbase, check if it is
+            // First transaction in a block is always the coinbase
             let is_coinbase = tx_index == 0;
+
+            // Process new UTXOs (outputs) first
+            for (vout, output) in tx.output.iter().enumerate() {
+                output_count += 1;
+                if let Ok(address) = Address::from_script(&output.script_pubkey, self.network) {
+                    let watch_set = self.watched_addresses.read().await;
+                    if !watch_set.contains(&address) {
+                        continue;
+                    }
+
+                    let script_type = determine_script_type(output.script_pubkey.clone());
+                    let utxo = UtxoUpdate {
+                        id: format!("{}:{}", tx.txid(), vout),
+                        address: address.to_string(),
+                        public_key: None,
+                        txid: tx.txid().to_string(),
+                        vout: vout as i32,
+                        amount: output.value.to_sat() as i64,
+                        script_pub_key: hex::encode(output.script_pubkey.as_bytes()),
+                        script_type,
+                        created_at: block_time,
+                        block_height: height,
+                        spent_txid: None,
+                        spent_at: None,
+                        spent_block: None,
+                    };
+
+                    utxo_updates.push(utxo);
+                }
+            }
 
             // Process spent UTXOs (inputs)
             for input in tx.input.iter() {
+                input_count += 1;
                 if input.previous_output.is_null() {
                     if !is_coinbase {
                         error!("Found null previous output in non-coinbase transaction");
@@ -461,36 +499,16 @@ impl BitcoinIndexer {
                     utxo_updates.push(spent_utxo);
                 }
             }
-
-            // Process new UTXOs (outputs)
-            for (vout, output) in tx.output.iter().enumerate() {
-                if let Ok(address) = Address::from_script(&output.script_pubkey, self.network) {
-                    let watch_set = self.watched_addresses.read().await;
-                    if !watch_set.contains(&address) {
-                        continue;
-                    }
-
-                    let script_type = determine_script_type(output.script_pubkey.clone());
-                    let utxo = UtxoUpdate {
-                        id: format!("{}:{}", tx.txid(), vout),
-                        address: address.to_string(),
-                        public_key: None, // Will be filled when the UTXO is spent
-                        txid: tx.txid().to_string(),
-                        vout: vout as i32,
-                        amount: output.value.to_sat() as i64,
-                        script_pub_key: hex::encode(output.script_pubkey.as_bytes()),
-                        script_type,
-                        created_at: block_time,
-                        block_height: height,
-                        spent_txid: None,
-                        spent_at: None,
-                        spent_block: None,
-                    };
-
-                    utxo_updates.push(utxo);
-                }
-            }
         }
+
+        info!(
+            "Processed block {} with {} transactions ({} inputs, {} outputs) in {:?}",
+            height,
+            block.txdata.len(),
+            input_count,
+            output_count,
+            start_time.elapsed()
+        );
 
         Ok(utxo_updates)
     }
@@ -514,10 +532,14 @@ impl BitcoinIndexer {
             return Ok(0);
         }
 
-        let blocks_to_process = std::cmp::min(
-            current_height - self.last_processed_height,
-            self.max_blocks_per_batch,
-        );
+        let batch_limit = if self.network == Network::Bitcoin {
+            1
+        } else {
+            self.max_blocks_per_batch
+        };
+
+        let blocks_to_process =
+            std::cmp::min(current_height - self.last_processed_height, batch_limit);
 
         if blocks_to_process == 0 {
             return Ok(0);

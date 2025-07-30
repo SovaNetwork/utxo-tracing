@@ -52,7 +52,11 @@ pub struct Args {
     #[arg(long, default_value = "0")]
     pub start_height: i32,
 
-    #[arg(long, default_value = "500", help = "Polling interval in milliseconds")]
+    #[arg(
+        long,
+        default_value = "0",
+        help = "Polling interval in milliseconds (0 = network default)"
+    )]
     pub polling_rate: u64,
 
     #[arg(
@@ -89,6 +93,18 @@ impl Args {
                 "Unsupported connection type: {}",
                 self.rpc_connection_type
             )),
+        }
+    }
+
+    /// Determine the effective polling interval in milliseconds
+    pub fn effective_polling_rate(&self) -> u64 {
+        if self.polling_rate != 0 {
+            return self.polling_rate;
+        }
+
+        match self.parse_network() {
+            Network::Bitcoin => 2000,
+            _ => 500,
         }
     }
 }
@@ -185,7 +201,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     indexer
-        .run(Duration::from_millis(args.polling_rate))
+        .run(Duration::from_millis(args.effective_polling_rate()))
         .await?;
 
     Ok(())
