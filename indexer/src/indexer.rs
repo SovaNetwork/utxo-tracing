@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use bitcoincore_rpc::bitcoin::{consensus, hashes::hex::FromHex};
+use bitcoincore_rpc::bitcoin::consensus;
 use bitcoincore_rpc::bitcoin::{Address, Block, BlockHash, Network, ScriptBuf};
 use bitcoincore_rpc::{Auth, RpcApi};
 use bitcoincore_rpc::bitcoin::{Txid, Transaction};
