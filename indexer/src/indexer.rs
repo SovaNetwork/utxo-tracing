@@ -44,7 +44,11 @@ impl BitcoinIndexer {
     /// Creates a new BitcoinIndexer instance
     pub fn new(config: IndexerConfig) -> Result<Self> {
         let rpc_url = config.rpc_host.to_string();
-        let auth = Auth::UserPass(config.rpc_user.clone(), config.rpc_password.clone());
+        let auth = if config.rpc_user.is_empty() && config.rpc_password.is_empty() {
+            Auth::None
+        } else {
+            Auth::UserPass(config.rpc_user.clone(), config.rpc_password.clone())
+        };
         let rpc_client = Client::new(&rpc_url, auth).map_err(IndexerError::BitcoinRPC)?;
 
         // Validate start block
