@@ -223,30 +223,11 @@ impl Datasource for UtxoSqliteDatasource {
             return Err(StorageError::InvalidBlockHeight(changes.height));
         }
 
-        let mut conn = self
-            .conn
-            .get()
-            .map_err(|e| StorageError::DatabaseConnectionFailed(e.to_string()))?;
-
-        // Start a transaction
-        let tx = conn.transaction().map_err(|e| {
-            StorageError::DatabaseQueryFailed(format!("Failed to start transaction: {e}"))
-        })?;
-
         let mut all_utxos = Vec::new();
         all_utxos.extend_from_slice(&changes.utxos_update);
         all_utxos.extend_from_slice(&changes.utxos_insert);
-        if let Err(e) = UtxoSqliteDatasource::bulk_upsert_utxos_in_tx(&tx, &all_utxos) {
-            let _ = tx.rollback();
-            return Err(e);
-        }
 
-        // Commit the transaction
-        tx.commit().map_err(|e| {
-            StorageError::DatabaseQueryFailed(format!("Failed to commit transaction: {e}"))
-        })?;
-
-        Ok(())
+        self.bulk_upsert_utxos(&all_utxos)
     }
 
     fn get_spendable_utxos_at_height(
