@@ -355,8 +355,7 @@ impl BitcoinIndexer {
         let mut results = HashMap::new();
         for chunk in outpoints.chunks(50) {
             let mut join_set = tokio::task::JoinSet::new();
-            let mut iter = chunk.iter();
-            while let Some((txid, vout)) = iter.next() {
+            for (txid, vout) in chunk.iter() {
                 let client = self.http_client.clone();
                 let base = self.utxo_url.clone();
                 let txid_c = *txid;
@@ -380,17 +379,13 @@ impl BitcoinIndexer {
                 });
 
                 if join_set.len() >= 10 {
-                    if let Some(res) = join_set.join_next().await {
-                        if let Ok((key, val)) = res {
-                            results.insert(key, val);
-                        }
+                    if let Some(Ok((key, val))) = join_set.join_next().await {
+                        results.insert(key, val);
                     }
                 }
             }
-            while let Some(res) = join_set.join_next().await {
-                if let Ok((key, val)) = res {
-                    results.insert(key, val);
-                }
+            while let Some(Ok((key, val))) = join_set.join_next().await {
+                results.insert(key, val);
             }
         }
         results

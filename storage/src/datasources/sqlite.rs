@@ -124,16 +124,21 @@ impl UtxoSqliteDatasource {
         Ok(())
     }
 
-    fn bulk_upsert_utxos_in_tx(tx: &rusqlite::Transaction, utxos: &[UtxoUpdate]) -> StorageResult<()> {
-        let mut stmt = tx.prepare(
-            "INSERT INTO utxo (
+    fn bulk_upsert_utxos_in_tx(
+        tx: &rusqlite::Transaction,
+        utxos: &[UtxoUpdate],
+    ) -> StorageResult<()> {
+        let mut stmt = tx
+            .prepare(
+                "INSERT INTO utxo (
                 id, address, public_key, txid, vout, amount, script_pub_key,
                 script_type, created_at, block_height, spent_txid, spent_at, spent_block
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
             ON CONFLICT(id) DO UPDATE SET
                 spent_txid = excluded.spent_txid,
                 spent_at = excluded.spent_at,
-                spent_block = excluded.spent_block" )
+                spent_block = excluded.spent_block",
+            )
             .map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
 
         for utxo in utxos {
