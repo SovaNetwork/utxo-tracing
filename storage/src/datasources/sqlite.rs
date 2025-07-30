@@ -84,45 +84,6 @@ impl UtxoSqliteDatasource {
         Ok(())
     }
 
-    fn upsert_utxo_in_tx(tx: &rusqlite::Transaction, utxo: &UtxoUpdate) -> StorageResult<()> {
-        // Validate UTXO
-        if utxo.amount < 0 {
-            return Err(StorageError::InvalidAmount(utxo.amount));
-        }
-
-        if utxo.address.is_empty() {
-            return Err(StorageError::InvalidAddress("Empty address".to_string()));
-        }
-
-        tx.execute(
-            "INSERT INTO utxo (
-                id, address, public_key, txid, vout, amount, script_pub_key, 
-                script_type, created_at, block_height, spent_txid, spent_at, spent_block
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
-            ON CONFLICT(id) DO UPDATE SET
-                spent_txid = excluded.spent_txid,
-                spent_at = excluded.spent_at,
-                spent_block = excluded.spent_block",
-            params![
-                utxo.id,
-                utxo.address,
-                utxo.public_key,
-                utxo.txid,
-                utxo.vout,
-                utxo.amount,
-                utxo.script_pub_key,
-                utxo.script_type,
-                utxo.created_at.to_rfc3339(),
-                utxo.block_height,
-                utxo.spent_txid,
-                utxo.spent_at.map(|dt| dt.to_rfc3339()),
-                utxo.spent_block,
-            ],
-        )
-        .map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
-
-        Ok(())
-    }
 
     fn bulk_upsert_utxos_in_tx(
         tx: &rusqlite::Transaction,
