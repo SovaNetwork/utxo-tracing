@@ -44,6 +44,7 @@ ENV RUST_LOG=info
 ENV SOCKET_PATH="/tmp/network-utxos.sock" \
     NETWORK="regtest" \
     RPC_HOST="http://bitcoin:18443" \
+    RPC_CONNECTION_TYPE="bitcoincore" \
     RPC_USER="user" \
     RPC_PASSWORD="password" \
     START_HEIGHT=0 \
@@ -61,6 +62,7 @@ CMD indexer \
     --socket-path "$SOCKET_PATH" \
     --network "$NETWORK" \
     --rpc-host "$RPC_HOST" \
+    --rpc-connection-type "$RPC_CONNECTION_TYPE" \
     --rpc-user "$RPC_USER" \
     --rpc-password "$RPC_PASSWORD" \
     --start-height "$START_HEIGHT" \
