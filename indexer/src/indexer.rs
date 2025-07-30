@@ -288,8 +288,7 @@ impl BitcoinIndexer {
                 }
                 other => {
                     return Err(IndexerError::InvalidConfiguration(format!(
-                        "Unknown connection type: {}",
-                        other
+                        "Unknown connection type: {other}"
                     )))
                 }
             };
@@ -360,7 +359,7 @@ impl BitcoinIndexer {
                 let txid_c = *txid;
                 let vout_c = *vout;
                 join_set.spawn(async move {
-                    let url = format!("{}/utxo/{}/{}", base, txid_c, vout_c);
+                    let url = format!("{base}/utxo/{txid_c}/{vout_c}");
                     if let Ok(resp) = client.get(url).send().await {
                         if resp.status().is_success() {
                             if let Ok(value) = resp.json::<JsonValue>().await {
@@ -415,7 +414,7 @@ impl BitcoinIndexer {
                 let script = ScriptBuf::from_bytes(script_bytes);
                 if let Ok(address) = Address::from_script(&script, self.network) {
                     let utxo = UtxoUpdate {
-                        id: format!("{}:{}", txid, vout),
+                        id: format!("{txid}:{vout}"),
                         address: address.to_string(),
                         public_key: None,
                         txid: txid.to_string(),
@@ -439,7 +438,7 @@ impl BitcoinIndexer {
             let prev_output = &prev_tx.output[vout as usize];
             if let Ok(address) = Address::from_script(&prev_output.script_pubkey, self.network) {
                 let utxo = UtxoUpdate {
-                    id: format!("{}:{}", txid, vout),
+                    id: format!("{txid}:{vout}"),
                     address: address.to_string(),
                     public_key: None,
                     txid: txid.to_string(),
