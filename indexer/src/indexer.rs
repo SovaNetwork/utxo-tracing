@@ -136,8 +136,7 @@ impl ExternalRpcClient {
                 return Err(IndexerError::RpcClientError(format!("RPC error: {error}")));
             }
         }
-        json
-            .get("result")
+        json.get("result")
             .cloned()
             .ok_or_else(|| IndexerError::RpcClientError("missing result".into()))
     }

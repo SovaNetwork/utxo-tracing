@@ -84,7 +84,6 @@ impl UtxoSqliteDatasource {
         Ok(())
     }
 
-
     fn bulk_upsert_utxos_in_tx(
         tx: &rusqlite::Transaction,
         utxos: &[UtxoUpdate],
