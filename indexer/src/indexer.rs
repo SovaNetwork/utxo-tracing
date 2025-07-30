@@ -1,44 +1,45 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use bitcoincore_rpc::bitcoin::{consensus, hashes::hex::FromHex};
+use bitcoincore_rpc::bitcoin::consensus;
 use bitcoincore_rpc::bitcoin::{Address, Block, BlockHash, Network, ScriptBuf};
-use bitcoincore_rpc::{Auth, Client, RpcApi};
+use bitcoincore_rpc::{Auth, RpcApi};
+use bitcoincore_rpc::bitcoin::{Txid, Transaction};
+use bitcoincore_rpc::json::{GetBlockResult, GetTxOutResult};
 use chrono::{DateTime, Utc};
 use log::{error, info};
 use network_shared::{BlockUpdate, SocketTransport, UtxoUpdate, FINALITY_CONFIRMATIONS};
 use reqwest::Client as HttpClient;
 use serde_json::Value as JsonValue;
 use std::collections::HashSet;
-use std::error::Error;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::error::{IndexerError, Result};
+use crate::error::{IndexerError, Result as IndexerResult};
 use crate::utils::{determine_script_type, extract_public_key};
 
 /// Abstraction over Bitcoin RPC clients
 #[async_trait]
 pub trait BitcoinRpcClient {
-    async fn get_block_count(&self) -> Result<u64, Box<dyn Error>>;
-    async fn get_block_hash(&self, height: u64) -> Result<BlockHash, Box<dyn Error>>;
-    async fn get_block(&self, block_hash: &BlockHash) -> Result<Block, Box<dyn Error>>;
+    async fn get_block_count(&self) -> IndexerResult<u64>;
+    async fn get_block_hash(&self, height: u64) -> IndexerResult<BlockHash>;
+    async fn get_block(&self, block_hash: &BlockHash) -> IndexerResult<Block>;
     async fn get_block_info(
         &self,
         block_hash: &BlockHash,
-    ) -> Result<GetBlockResult, Box<dyn Error>>;
+    ) -> IndexerResult<GetBlockResult>;
     async fn get_tx_out(
         &self,
         txid: &Txid,
         vout: u32,
         include_mempool: Option<bool>,
-    ) -> Result<Option<GetTxOutResult>, Box<dyn Error>>;
+    ) -> IndexerResult<Option<GetTxOutResult>>;
     async fn get_raw_transaction(
         &self,
         txid: &Txid,
         block_hash: Option<&BlockHash>,
-    ) -> Result<Transaction, Box<dyn Error>>;
+    ) -> IndexerResult<Transaction>;
 }
 
 /// RPC client backed by bitcoincore-rpc
@@ -47,7 +48,7 @@ pub struct BitcoinCoreRpcClient {
 }
 
 impl BitcoinCoreRpcClient {
-    pub fn new(rpc_url: &str, auth: Auth) -> Result<Self, Box<dyn Error>> {
+    pub fn new(rpc_url: &str, auth: Auth) -> Result<Self, bitcoincore_rpc::Error> {
         let client = bitcoincore_rpc::Client::new(rpc_url, auth)?;
         Ok(Self { client })
     }
@@ -55,22 +56,22 @@ impl BitcoinCoreRpcClient {
 
 #[async_trait]
 impl BitcoinRpcClient for BitcoinCoreRpcClient {
-    async fn get_block_count(&self) -> Result<u64, Box<dyn Error>> {
+    async fn get_block_count(&self) -> IndexerResult<u64> {
         Ok(self.client.get_block_count()?)
     }
 
-    async fn get_block_hash(&self, height: u64) -> Result<BlockHash, Box<dyn Error>> {
+    async fn get_block_hash(&self, height: u64) -> IndexerResult<BlockHash> {
         Ok(self.client.get_block_hash(height)?)
     }
 
-    async fn get_block(&self, block_hash: &BlockHash) -> Result<Block, Box<dyn Error>> {
+    async fn get_block(&self, block_hash: &BlockHash) -> IndexerResult<Block> {
         Ok(self.client.get_block(block_hash)?)
     }
 
     async fn get_block_info(
         &self,
         block_hash: &BlockHash,
-    ) -> Result<GetBlockResult, Box<dyn Error>> {
+    ) -> IndexerResult<GetBlockResult> {
         Ok(self.client.get_block_info(block_hash)?)
     }
 
@@ -79,7 +80,7 @@ impl BitcoinRpcClient for BitcoinCoreRpcClient {
         txid: &Txid,
         vout: u32,
         include_mempool: Option<bool>,
-    ) -> Result<Option<GetTxOutResult>, Box<dyn Error>> {
+    ) -> IndexerResult<Option<GetTxOutResult>> {
         Ok(self.client.get_tx_out(txid, vout, include_mempool)?)
     }
 
@@ -87,7 +88,7 @@ impl BitcoinRpcClient for BitcoinCoreRpcClient {
         &self,
         txid: &Txid,
         block_hash: Option<&BlockHash>,
-    ) -> Result<Transaction, Box<dyn Error>> {
+    ) -> IndexerResult<Transaction> {
         Ok(self.client.get_raw_transaction(txid, block_hash)?)
     }
 }
@@ -114,7 +115,7 @@ impl ExternalRpcClient {
         &self,
         method: &str,
         params: Vec<serde_json::Value>,
-    ) -> Result<serde_json::Value, Box<dyn Error>> {
+    ) -> IndexerResult<serde_json::Value> {
         let mut req = self.client.post(&self.rpc_url).json(&serde_json::json!({
             "jsonrpc": "1.0",
             "id": "1",
@@ -126,33 +127,43 @@ impl ExternalRpcClient {
             req = req.basic_auth(user, self.rpc_password.as_deref());
         }
 
-        let resp = req.send().await?;
-        let json: serde_json::Value = resp.json().await?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
+        let json: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
         if let Some(error) = json.get("error") {
             if !error.is_null() {
-                return Err(format!("RPC error: {error}").into());
+                return Err(IndexerError::RpcClientError(format!("RPC error: {error}")));
             }
         }
-        Ok(json.get("result").cloned().ok_or("missing result")?)
+        Ok(json
+            .get("result")
+            .cloned()
+            .ok_or_else(|| IndexerError::RpcClientError("missing result".into()))?)
     }
 }
 
 #[async_trait]
 impl BitcoinRpcClient for ExternalRpcClient {
-    async fn get_block_count(&self) -> Result<u64, Box<dyn Error>> {
+    async fn get_block_count(&self) -> IndexerResult<u64> {
         let res = self.make_rpc_call("getblockcount", vec![]).await?;
-        Ok(serde_json::from_value(res)?)
+        Ok(serde_json::from_value(res).map_err(|e| IndexerError::RpcClientError(e.to_string()))?)
     }
 
-    async fn get_block_hash(&self, height: u64) -> Result<BlockHash, Box<dyn Error>> {
+    async fn get_block_hash(&self, height: u64) -> IndexerResult<BlockHash> {
         let res = self
             .make_rpc_call("getblockhash", vec![serde_json::json!(height)])
             .await?;
-        let hash_str: String = serde_json::from_value(res)?;
-        Ok(BlockHash::from_hex(&hash_str)?)
+        let hash_str: String = serde_json::from_value(res)
+            .map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
+        Ok(BlockHash::from_str(&hash_str).map_err(|e| IndexerError::RpcClientError(e.to_string()))?)
     }
 
-    async fn get_block(&self, block_hash: &BlockHash) -> Result<Block, Box<dyn Error>> {
+    async fn get_block(&self, block_hash: &BlockHash) -> IndexerResult<Block> {
         let res = self
             .make_rpc_call(
                 "getblock",
@@ -162,15 +173,16 @@ impl BitcoinRpcClient for ExternalRpcClient {
                 ],
             )
             .await?;
-        let hex: String = serde_json::from_value(res)?;
-        let bytes = hex::decode(hex)?;
-        Ok(consensus::deserialize(&bytes)?)
+        let hex: String = serde_json::from_value(res)
+            .map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
+        let bytes = hex::decode(hex).map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
+        Ok(consensus::deserialize(&bytes).map_err(|e| IndexerError::RpcClientError(e.to_string()))?)
     }
 
     async fn get_block_info(
         &self,
         block_hash: &BlockHash,
-    ) -> Result<GetBlockResult, Box<dyn Error>> {
+    ) -> IndexerResult<GetBlockResult> {
         let res = self
             .make_rpc_call(
                 "getblock",
@@ -180,7 +192,7 @@ impl BitcoinRpcClient for ExternalRpcClient {
                 ],
             )
             .await?;
-        Ok(serde_json::from_value(res)?)
+        Ok(serde_json::from_value(res).map_err(|e| IndexerError::RpcClientError(e.to_string()))?)
     }
 
     async fn get_tx_out(
@@ -188,7 +200,7 @@ impl BitcoinRpcClient for ExternalRpcClient {
         txid: &Txid,
         vout: u32,
         include_mempool: Option<bool>,
-    ) -> Result<Option<GetTxOutResult>, Box<dyn Error>> {
+    ) -> IndexerResult<Option<GetTxOutResult>> {
         let mut params = vec![serde_json::json!(txid.to_string()), serde_json::json!(vout)];
         if let Some(include) = include_mempool {
             params.push(serde_json::json!(include));
@@ -197,14 +209,14 @@ impl BitcoinRpcClient for ExternalRpcClient {
         if res.is_null() {
             return Ok(None);
         }
-        Ok(Some(serde_json::from_value(res)?))
+        Ok(Some(serde_json::from_value(res).map_err(|e| IndexerError::RpcClientError(e.to_string()))?))
     }
 
     async fn get_raw_transaction(
         &self,
         txid: &Txid,
         block_hash: Option<&BlockHash>,
-    ) -> Result<Transaction, Box<dyn Error>> {
+    ) -> IndexerResult<Transaction> {
         let mut params = vec![
             serde_json::json!(txid.to_string()),
             serde_json::json!(false),
@@ -213,9 +225,10 @@ impl BitcoinRpcClient for ExternalRpcClient {
             params.push(serde_json::json!(hash.to_string()));
         }
         let res = self.make_rpc_call("getrawtransaction", params).await?;
-        let hex: String = serde_json::from_value(res)?;
-        let bytes = hex::decode(hex)?;
-        Ok(consensus::deserialize(&bytes)?)
+        let hex: String = serde_json::from_value(res)
+            .map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
+        let bytes = hex::decode(hex).map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
+        Ok(consensus::deserialize(&bytes).map_err(|e| IndexerError::RpcClientError(e.to_string()))?)
     }
 }
 
@@ -247,7 +260,7 @@ pub struct BitcoinIndexer {
 
 impl BitcoinIndexer {
     /// Creates a new BitcoinIndexer instance
-    pub async fn new(config: IndexerConfig) -> Result<Self> {
+    pub async fn new(config: IndexerConfig) -> IndexerResult<Self> {
         let rpc_client: Box<dyn BitcoinRpcClient + Send + Sync> =
             match config.connection_type.as_str() {
                 "bitcoincore" => {
@@ -334,7 +347,7 @@ impl BitcoinIndexer {
     }
 
     /// Gets block data for a given block hash and process transactions
-    async fn get_block_data(&self, block_hash: &BlockHash) -> Result<BlockUpdate> {
+    async fn get_block_data(&self, block_hash: &BlockHash) -> IndexerResult<BlockUpdate> {
         let block = self.rpc_client.get_block(block_hash).await?;
         let block_info = self.rpc_client.get_block_info(block_hash).await?;
 
@@ -359,7 +372,7 @@ impl BitcoinIndexer {
         block: &Block,
         height: i32,
         block_time: DateTime<Utc>,
-    ) -> Result<Vec<UtxoUpdate>> {
+    ) -> IndexerResult<Vec<UtxoUpdate>> {
         let mut utxo_updates = Vec::new();
 
         for (tx_index, tx) in block.txdata.iter().enumerate() {
@@ -483,13 +496,13 @@ impl BitcoinIndexer {
     }
 
     /// Sends a block update to the socket transport
-    async fn send_block_update(&self, update: &BlockUpdate) -> Result<()> {
+    async fn send_block_update(&self, update: &BlockUpdate) -> IndexerResult<()> {
         self.socket_transport.send_update(update).await?;
         Ok(())
     }
 
     /// Processes new blocks that have been added to the blockchain
-    async fn process_new_blocks(&mut self) -> Result<i32> {
+    async fn process_new_blocks(&mut self) -> IndexerResult<i32> {
         let current_height = self.rpc_client.get_block_count().await? as i32;
         if current_height <= self.last_processed_height {
             return Ok(0);
@@ -547,7 +560,7 @@ impl BitcoinIndexer {
         Ok(blocks_to_process)
     }
 
-    async fn check_for_reorg(&mut self) -> Result<bool> {
+    async fn check_for_reorg(&mut self) -> IndexerResult<bool> {
         let current_height = self.rpc_client.get_block_count().await? as i32;
 
         // Calculate the finality threshold
@@ -587,7 +600,7 @@ impl BitcoinIndexer {
     }
 
     // Helper method to find the fork point
-    async fn find_fork_point(&self, start_height: i32, min_height: i32) -> Result<i32> {
+    async fn find_fork_point(&self, start_height: i32, min_height: i32) -> IndexerResult<i32> {
         let mut height = start_height - 1;
 
         while height >= min_height {
@@ -607,7 +620,7 @@ impl BitcoinIndexer {
     }
 
     /// Runs the indexer in a loop, processing new blocks as they are added
-    pub async fn run(&mut self, poll_interval: Duration) -> Result<()> {
+    pub async fn run(&mut self, poll_interval: Duration) -> IndexerResult<()> {
         info!(
             "Starting Bitcoin UTXO indexer from block {} with polling interval of {:?}",
             self.start_height, poll_interval
