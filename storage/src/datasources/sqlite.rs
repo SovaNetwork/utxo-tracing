@@ -84,26 +84,31 @@ impl UtxoSqliteDatasource {
         Ok(())
     }
 
-    fn upsert_utxo_in_tx(tx: &rusqlite::Transaction, utxo: &UtxoUpdate) -> StorageResult<()> {
-        // Validate UTXO
-        if utxo.amount < 0 {
-            return Err(StorageError::InvalidAmount(utxo.amount));
-        }
-
-        if utxo.address.is_empty() {
-            return Err(StorageError::InvalidAddress("Empty address".to_string()));
-        }
-
-        tx.execute(
-            "INSERT INTO utxo (
-                id, address, public_key, txid, vout, amount, script_pub_key, 
+    fn bulk_upsert_utxos_in_tx(
+        tx: &rusqlite::Transaction,
+        utxos: &[UtxoUpdate],
+    ) -> StorageResult<()> {
+        let mut stmt = tx
+            .prepare(
+                "INSERT INTO utxo (
+                id, address, public_key, txid, vout, amount, script_pub_key,
                 script_type, created_at, block_height, spent_txid, spent_at, spent_block
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
             ON CONFLICT(id) DO UPDATE SET
                 spent_txid = excluded.spent_txid,
                 spent_at = excluded.spent_at,
                 spent_block = excluded.spent_block",
-            params![
+            )
+            .map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
+
+        for utxo in utxos {
+            if utxo.amount < 0 {
+                return Err(StorageError::InvalidAmount(utxo.amount));
+            }
+            if utxo.address.is_empty() {
+                return Err(StorageError::InvalidAddress("Empty address".to_string()));
+            }
+            stmt.execute(params![
                 utxo.id,
                 utxo.address,
                 utxo.public_key,
@@ -117,10 +122,30 @@ impl UtxoSqliteDatasource {
                 utxo.spent_txid,
                 utxo.spent_at.map(|dt| dt.to_rfc3339()),
                 utxo.spent_block,
-            ],
-        )
-        .map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
+            ])
+            .map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
+        }
+        Ok(())
+    }
 
+    pub fn bulk_upsert_utxos_impl(&self, utxos: &[UtxoUpdate]) -> StorageResult<()> {
+        let mut conn = self
+            .conn
+            .get()
+            .map_err(|e| StorageError::DatabaseConnectionFailed(e.to_string()))?;
+
+        let tx = conn.transaction().map_err(|e| {
+            StorageError::DatabaseQueryFailed(format!("Failed to start transaction: {e}"))
+        })?;
+
+        if let Err(e) = Self::bulk_upsert_utxos_in_tx(&tx, utxos) {
+            let _ = tx.rollback();
+            return Err(e);
+        }
+
+        tx.commit().map_err(|e| {
+            StorageError::DatabaseQueryFailed(format!("Failed to commit transaction: {e}"))
+        })?;
         Ok(())
     }
 }
@@ -158,44 +183,11 @@ impl Datasource for UtxoSqliteDatasource {
             return Err(StorageError::InvalidBlockHeight(changes.height));
         }
 
-        let mut conn = self
-            .conn
-            .get()
-            .map_err(|e| StorageError::DatabaseConnectionFailed(e.to_string()))?;
+        let mut all_utxos = Vec::new();
+        all_utxos.extend_from_slice(&changes.utxos_update);
+        all_utxos.extend_from_slice(&changes.utxos_insert);
 
-        // Start a transaction
-        let tx = conn.transaction().map_err(|e| {
-            StorageError::DatabaseQueryFailed(format!("Failed to start transaction: {e}"))
-        })?;
-
-        // Upsert UTXOs from utxos_update
-        for utxo in &changes.utxos_update {
-            if let Err(e) = UtxoSqliteDatasource::upsert_utxo_in_tx(&tx, utxo) {
-                let _ = tx.rollback(); // Try to rollback, but we'll return the original error
-                return Err(StorageError::DatabaseQueryFailed(format!(
-                    "Failed to upsert UTXO {}: {}",
-                    utxo.id, e
-                )));
-            }
-        }
-
-        // Upsert UTXOs from utxos_insert
-        for utxo in &changes.utxos_insert {
-            if let Err(e) = UtxoSqliteDatasource::upsert_utxo_in_tx(&tx, utxo) {
-                let _ = tx.rollback(); // Try to rollback, but we'll return the original error
-                return Err(StorageError::DatabaseQueryFailed(format!(
-                    "Failed to upsert UTXO {}: {}",
-                    utxo.id, e
-                )));
-            }
-        }
-
-        // Commit the transaction
-        tx.commit().map_err(|e| {
-            StorageError::DatabaseQueryFailed(format!("Failed to commit transaction: {e}"))
-        })?;
-
-        Ok(())
+        self.bulk_upsert_utxos(&all_utxos)
     }
 
     fn get_spendable_utxos_at_height(
@@ -591,5 +583,9 @@ impl Datasource for UtxoSqliteDatasource {
             .map_err(|e| StorageError::DatabaseQueryFailed(e.to_string()))?;
 
         Ok(result)
+    }
+
+    fn bulk_upsert_utxos(&self, utxos: &[UtxoUpdate]) -> StorageResult<()> {
+        self.bulk_upsert_utxos_impl(utxos)
     }
 }

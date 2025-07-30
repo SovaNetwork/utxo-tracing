@@ -14,6 +14,7 @@ pub trait Datasource {
     fn get_type(&self) -> String;
     fn get_latest_block(&self) -> StorageResult<i32>;
     fn process_block_utxos(&self, pending_changes: &PendingChanges) -> StorageResult<()>;
+    fn bulk_upsert_utxos(&self, utxos: &[UtxoUpdate]) -> StorageResult<()>;
     fn get_spendable_utxos_at_height(
         &self,
         block_height: i32,

@@ -202,6 +202,22 @@ impl Datasource for UtxoCSVDatasource {
         Ok(())
     }
 
+    fn bulk_upsert_utxos(&self, utxos: &[UtxoUpdate]) -> StorageResult<()> {
+        let mut pending = PendingChanges {
+            height: 0,
+            utxos_update: Vec::new(),
+            utxos_insert: Vec::new(),
+        };
+        for utxo in utxos {
+            if utxo.spent_txid.is_some() {
+                pending.utxos_update.push(utxo.clone());
+            } else {
+                pending.utxos_insert.push(utxo.clone());
+            }
+        }
+        self.process_block_utxos(&pending)
+    }
+
     fn get_spendable_utxos_at_height(
         &self,
         block_height: i32,
