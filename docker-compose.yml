@@ -95,6 +95,7 @@ services:
       - RUST_LOG=${LOG_LEVEL}
       - NETWORK=${BITCOIN_NETWORK}
       - RPC_HOST=${BITCOIN_RPC_URL:-http://bitcoin-regtest:18443}
+      - RPC_CONNECTION_TYPE=${BITCOIN_CONNECTION_TYPE:-bitcoincore}
       - RPC_USER=${BITCOIN_RPC_USER}
       - RPC_PASSWORD=${BITCOIN_RPC_PASSWORD}
       - SOCKET_PATH=/tmp/network-utxos.sock

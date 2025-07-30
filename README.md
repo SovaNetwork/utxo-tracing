@@ -102,6 +102,7 @@ docker-compose up -d
 | RPC_HOST | Bitcoin RPC host url | http://bitcoin-regtest:18443 |
 | RPC_USER | Bitcoin RPC username | user |
 | RPC_PASSWORD | Bitcoin RPC password | password |
+| RPC_CONNECTION_TYPE | RPC connection type (bitcoincore, external) | bitcoincore |
 | NETWORK | Bitcoin network (mainnet, testnet, regtest, signet) | regtest |
 | SOCKET_PATH | Path to Unix socket | /tmp/network-utxos.sock |
 | START_HEIGHT | Block height to start from | 0 |

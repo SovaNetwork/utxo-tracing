@@ -6,18 +6,22 @@ use std::fmt;
 #[derive(Debug)]
 pub enum IndexerError {
     BitcoinRPC(bitcoincore_rpc::Error),
+    RpcClientError(String),
     Network(TransportError),
     InvalidTimestamp,
     InvalidStartBlock(String),
+    InvalidConfiguration(String),
 }
 
 impl fmt::Display for IndexerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             IndexerError::BitcoinRPC(e) => write!(f, "Bitcoin RPC error: {e}"),
+            IndexerError::RpcClientError(e) => write!(f, "RPC client error: {e}"),
             IndexerError::Network(e) => write!(f, "Network error: {e}"),
             IndexerError::InvalidTimestamp => write!(f, "Invalid timestamp"),
             IndexerError::InvalidStartBlock(msg) => write!(f, "Invalid start block: {msg}"),
+            IndexerError::InvalidConfiguration(msg) => write!(f, "Invalid configuration: {msg}"),
         }
     }
 }

@@ -42,6 +42,13 @@ pub struct Args {
     )]
     pub rpc_host: String,
 
+    #[arg(
+        long,
+        default_value = "bitcoincore",
+        help = "RPC connection type (bitcoincore, external)"
+    )]
+    pub rpc_connection_type: String,
+
     #[arg(long, default_value = "0")]
     pub start_height: i32,
 
@@ -71,6 +78,17 @@ impl Args {
             "signet" => Network::Signet,
             "testnet" => Network::Testnet,
             _ => panic!("Unsupported network: {}", self.network),
+        }
+    }
+
+    /// Validate and parse the rpc connection type
+    pub fn parse_connection_type(&self) -> Result<String, String> {
+        match self.rpc_connection_type.to_lowercase().as_str() {
+            "bitcoincore" | "external" => Ok(self.rpc_connection_type.to_lowercase()),
+            _ => Err(format!(
+                "Unsupported connection type: {}",
+                self.rpc_connection_type
+            )),
         }
     }
 }
@@ -125,12 +143,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         rpc_user: args.rpc_user.clone(),
         rpc_password: args.rpc_password.clone(),
         rpc_host: args.rpc_host.clone(),
+        connection_type: args
+            .parse_connection_type()
+            .expect("Invalid connection type"),
         socket_path: args.socket_path.clone(),
         start_height: args.start_height,
         max_blocks_per_batch: args.max_blocks_per_batch,
         utxo_url: utxo_url.clone(),
     };
-    let mut indexer = BitcoinIndexer::new(config)?;
+    let mut indexer = BitcoinIndexer::new(config).await?;
 
     let enclave_url = std::env::var("ENCLAVE_URL").expect("ENCLAVE_URL must be set");
     validate_enclave_url(&enclave_url).expect("Invalid ENCLAVE_URL");
