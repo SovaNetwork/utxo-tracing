@@ -6,11 +6,11 @@
 #
 # BITCOIN NODE OPTIONS:
 # 1. Local Bitcoin Node: Use profile 'local-bitcoin' to run a local regtest node
-# 2. Amazon Managed Blockchain (AMB): Use profile 'amb-bitcoin' with BITCOIN_RPC_URL
+# 2. External Bitcoin RPC API: Use profile 'external-bitcoin' with BITCOIN_RPC_URL
 #
 # Usage examples:
 # Local Bitcoin: docker-compose --profile local-bitcoin up
-# AMB Bitcoin: docker-compose --profile amb-bitcoin up
+# External Bitcoin: docker-compose --profile external-bitcoin up
 
 services:
   # Optional local Bitcoin node for development/testing
@@ -67,7 +67,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 5s
-    profiles: [local-bitcoin, amb-bitcoin]
+    profiles: [local-bitcoin, external-bitcoin]
 
   network-utxos:
     image: ghcr.io/sovanetwork/network-utxos:v0.1.7
@@ -84,7 +84,7 @@ services:
     volumes:
       - utxo-data:/data
       - socket:/tmp
-    profiles: [local-bitcoin, amb-bitcoin]
+    profiles: [local-bitcoin, external-bitcoin]
 
   network-indexer:
     # image: ghcr.io/sovanetwork/network-indexer:v0.1.7
@@ -120,7 +120,7 @@ services:
     volumes:
       - indexer-cache:/app/cache
       - socket:/tmp
-    profiles: [local-bitcoin, amb-bitcoin]
+    profiles: [local-bitcoin, external-bitcoin]
 
 networks:
   sova_network:
@@ -147,7 +147,7 @@ volumes:
 # 2. AMAZON MANAGED BLOCKCHAIN (AMB) ACCESS BITCOIN
 # ==================================================
 # Run with AMB Bitcoin (mainnet/testnet):
-#   docker-compose --profile amb-bitcoin up
+#   docker-compose --profile external-bitcoin up
 #
 # Copy env.example to .env and configure for AMB usage.
 #
