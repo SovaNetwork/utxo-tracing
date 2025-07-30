@@ -3,7 +3,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bitcoincore_rpc::bitcoin::{consensus, hashes::hex::FromHex};
 use bitcoincore_rpc::bitcoin::{Address, Block, BlockHash, Network, ScriptBuf};
-use bitcoincore_rpc::{Auth, Client, RpcApi};
+use bitcoincore_rpc::{Auth, RpcApi};
+use bitcoincore_rpc::bitcoin::{Txid, Transaction};
+use bitcoincore_rpc::json::{GetBlockResult, GetTxOutResult};
 use chrono::{DateTime, Utc};
 use log::{error, info};
 use network_shared::{BlockUpdate, SocketTransport, UtxoUpdate, FINALITY_CONFIRMATIONS};
@@ -15,7 +17,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::error::{IndexerError, Result};
+use crate::error::{IndexerError, Result as IndexerResult};
 use crate::utils::{determine_script_type, extract_public_key};
 
 /// Abstraction over Bitcoin RPC clients
@@ -247,7 +249,7 @@ pub struct BitcoinIndexer {
 
 impl BitcoinIndexer {
     /// Creates a new BitcoinIndexer instance
-    pub async fn new(config: IndexerConfig) -> Result<Self> {
+    pub async fn new(config: IndexerConfig) -> IndexerResult<Self> {
         let rpc_client: Box<dyn BitcoinRpcClient + Send + Sync> =
             match config.connection_type.as_str() {
                 "bitcoincore" => {
@@ -334,7 +336,7 @@ impl BitcoinIndexer {
     }
 
     /// Gets block data for a given block hash and process transactions
-    async fn get_block_data(&self, block_hash: &BlockHash) -> Result<BlockUpdate> {
+    async fn get_block_data(&self, block_hash: &BlockHash) -> IndexerResult<BlockUpdate> {
         let block = self.rpc_client.get_block(block_hash).await?;
         let block_info = self.rpc_client.get_block_info(block_hash).await?;
 
@@ -359,7 +361,7 @@ impl BitcoinIndexer {
         block: &Block,
         height: i32,
         block_time: DateTime<Utc>,
-    ) -> Result<Vec<UtxoUpdate>> {
+    ) -> IndexerResult<Vec<UtxoUpdate>> {
         let mut utxo_updates = Vec::new();
 
         for (tx_index, tx) in block.txdata.iter().enumerate() {
@@ -483,13 +485,13 @@ impl BitcoinIndexer {
     }
 
     /// Sends a block update to the socket transport
-    async fn send_block_update(&self, update: &BlockUpdate) -> Result<()> {
+    async fn send_block_update(&self, update: &BlockUpdate) -> IndexerResult<()> {
         self.socket_transport.send_update(update).await?;
         Ok(())
     }
 
     /// Processes new blocks that have been added to the blockchain
-    async fn process_new_blocks(&mut self) -> Result<i32> {
+    async fn process_new_blocks(&mut self) -> IndexerResult<i32> {
         let current_height = self.rpc_client.get_block_count().await? as i32;
         if current_height <= self.last_processed_height {
             return Ok(0);
@@ -547,7 +549,7 @@ impl BitcoinIndexer {
         Ok(blocks_to_process)
     }
 
-    async fn check_for_reorg(&mut self) -> Result<bool> {
+    async fn check_for_reorg(&mut self) -> IndexerResult<bool> {
         let current_height = self.rpc_client.get_block_count().await? as i32;
 
         // Calculate the finality threshold
@@ -587,7 +589,7 @@ impl BitcoinIndexer {
     }
 
     // Helper method to find the fork point
-    async fn find_fork_point(&self, start_height: i32, min_height: i32) -> Result<i32> {
+    async fn find_fork_point(&self, start_height: i32, min_height: i32) -> IndexerResult<i32> {
         let mut height = start_height - 1;
 
         while height >= min_height {
@@ -607,7 +609,7 @@ impl BitcoinIndexer {
     }
 
     /// Runs the indexer in a loop, processing new blocks as they are added
-    pub async fn run(&mut self, poll_interval: Duration) -> Result<()> {
+    pub async fn run(&mut self, poll_interval: Duration) -> IndexerResult<()> {
         info!(
             "Starting Bitcoin UTXO indexer from block {} with polling interval of {:?}",
             self.start_height, poll_interval
