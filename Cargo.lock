@@ -1264,7 +1264,7 @@ checksum = "e8a5a9a0ff0086c7a148acb942baaabeadf9504d10400b5a05645853729b9cd2"
 
 [[package]]
 name = "indexer"
-version = "0.1.5"
+version = "0.1.8"
 dependencies = [
  "async-trait",
  "bincode",
@@ -1524,7 +1524,7 @@ dependencies = [
 
 [[package]]
 name = "network-shared"
-version = "0.1.5"
+version = "0.1.8"
 dependencies = [
  "bincode",
  "chrono",
@@ -2193,7 +2193,7 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
 name = "storage"
-version = "0.1.5"
+version = "0.1.8"
 dependencies = [
  "actix-web",
  "bincode",
