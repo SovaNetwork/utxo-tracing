@@ -69,32 +69,11 @@ services:
       start_period: 5s
     profiles: [local-bitcoin, external-bitcoin]
 
-  network-utxos:
-    # image: ghcr.io/sovanetwork/network-utxos:v0.1.9
-    build:
-      context: .
-      dockerfile: ./storage/Dockerfile
-    environment:
-      - NETWORK=${BITCOIN_NETWORK}
-      - HOST=${UTXO_HOST}
-      - PORT=${UTXO_PORT}
-      - LOG_LEVEL=${LOG_LEVEL}
-      - DATASOURCE=${UTXO_DATASOURCE}
-      - SOCKET_PATH=/tmp/network-utxos.sock
-    ports:
-      - "5557:5557"
-    networks:
-      - sova_network
-    volumes:
-      - utxo-data:/data
-      - socket:/tmp
-    profiles: [local-bitcoin, external-bitcoin]
-
   network-indexer:
-    # image: ghcr.io/sovanetwork/network-indexer:v0.1.9
-    build:
-      context: .
-      dockerfile: ./indexer/Dockerfile
+    image: ghcr.io/sovanetwork/network-indexer:v0.2.0
+    # build:
+    #   context: .
+    #   dockerfile: ./indexer/Dockerfile
     environment:
       - LOG_LEVEL=${LOG_LEVEL}
       - NETWORK=${BITCOIN_NETWORK}
@@ -124,6 +103,27 @@ services:
         condition: service_healthy
     volumes:
       - indexer-cache:/app/cache
+      - socket:/tmp
+    profiles: [local-bitcoin, external-bitcoin]
+  
+  network-utxos:
+    image: ghcr.io/sovanetwork/network-utxos:v0.2.0
+    # build:
+    #   context: .
+    #   dockerfile: ./storage/Dockerfile
+    environment:
+      - NETWORK=${BITCOIN_NETWORK}
+      - HOST=${UTXO_HOST}
+      - PORT=${UTXO_PORT}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - DATASOURCE=${UTXO_DATASOURCE}
+      - SOCKET_PATH=/tmp/network-utxos.sock
+    ports:
+      - "5557:5557"
+    networks:
+      - sova_network
+    volumes:
+      - utxo-data:/data
       - socket:/tmp
     profiles: [local-bitcoin, external-bitcoin]
 
