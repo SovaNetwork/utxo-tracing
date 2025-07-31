@@ -69,7 +69,11 @@ pub struct Args {
     )]
     pub max_blocks_per_batch: i32,
 
-    #[arg(long, default_value = "10", help = "RPC batch size for external connections")]
+    #[arg(
+        long,
+        default_value = "10",
+        help = "RPC batch size for external connections"
+    )]
     pub batch_size: usize,
 
     #[arg(long, default_value = "0.0.0.0", help = "API server host")]
