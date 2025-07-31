@@ -23,6 +23,15 @@ use tokio::sync::{Mutex, RwLock};
 use crate::error::{IndexerError, Result as IndexerResult};
 use crate::utils::{determine_script_type, extract_public_key};
 
+struct TransactionProcessingContext<'a> {
+    height: i32,
+    block_time: DateTime<Utc>,
+    watch_set: &'a HashSet<Address>,
+    tx_map: &'a HashMap<Txid, Transaction>,
+    utxo_map: &'a HashMap<(Txid, u32), GetTxOutResult>,
+    network: Network,
+}
+
 /// Abstraction over Bitcoin RPC clients
 #[async_trait]
 pub trait BitcoinRpcClient: Any + Send + Sync {
@@ -107,9 +116,9 @@ pub struct ExternalRpcClient {
 impl ExternalRpcClient {
     pub fn new(rpc_url: String, rpc_user: Option<String>, rpc_password: Option<String>) -> Self {
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .pool_max_idle_per_host(10)
-            .pool_idle_timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(120))
+            .pool_max_idle_per_host(2)
+            .pool_idle_timeout(Duration::from_secs(60))
             .build()
             .expect("failed to build client");
         Self {
@@ -117,42 +126,8 @@ impl ExternalRpcClient {
             rpc_url,
             rpc_user,
             rpc_password,
-            batch_size: 100,
+            batch_size: 10,
         }
-    }
-
-    async fn make_rpc_call(
-        &self,
-        method: &str,
-        params: Vec<serde_json::Value>,
-    ) -> IndexerResult<serde_json::Value> {
-        let mut req = self.client.post(&self.rpc_url).json(&serde_json::json!({
-            "jsonrpc": "1.0",
-            "id": "1",
-            "method": method,
-            "params": params,
-        }));
-
-        if let Some(user) = &self.rpc_user {
-            req = req.basic_auth(user, self.rpc_password.as_deref());
-        }
-
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
-        let json: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
-        if let Some(error) = json.get("error") {
-            if !error.is_null() {
-                return Err(IndexerError::RpcClientError(format!("RPC error: {error}")));
-            }
-        }
-        json.get("result")
-            .cloned()
-            .ok_or_else(|| IndexerError::RpcClientError("missing result".into()))
     }
 
     async fn make_rpc_call_optimized(
@@ -215,6 +190,13 @@ impl ExternalRpcClient {
         &self,
         batch: Vec<serde_json::Value>,
     ) -> IndexerResult<Vec<serde_json::Value>> {
+        // Log the request being sent
+        log::debug!("Sending batch request with {} items", batch.len());
+        log::debug!(
+            "Batch request: {}",
+            serde_json::to_string_pretty(&batch).unwrap_or_default()
+        );
+
         for attempt in 0..3 {
             let mut req = self
                 .client
@@ -229,6 +211,7 @@ impl ExternalRpcClient {
             let resp = match req.send().await {
                 Ok(r) => r,
                 Err(e) => {
+                    log::error!("Batch request failed on attempt {}: {}", attempt + 1, e);
                     if attempt == 2 {
                         return Err(IndexerError::RpcClientError(e.to_string()));
                     }
@@ -237,23 +220,46 @@ impl ExternalRpcClient {
                 }
             };
 
+            log::debug!("Batch response status: {}", resp.status());
+
             if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                log::warn!("Rate limited, retrying in {} seconds", 1 << attempt);
                 tokio::time::sleep(Duration::from_secs(1 << attempt)).await;
                 continue;
             }
 
-            let json: serde_json::Value = resp
-                .json()
+            // Get response as text first to see what we're actually getting
+            let response_text = resp
+                .text()
                 .await
                 .map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
+
+            log::debug!("Raw batch response: {}", response_text);
+
+            // Try to parse as JSON
+            let json: serde_json::Value = serde_json::from_str(&response_text).map_err(|e| {
+                IndexerError::RpcClientError(format!("Failed to parse JSON: {}", e))
+            })?;
+
+            log::debug!("Parsed JSON type: {:?}", json);
+
             if let serde_json::Value::Array(results) = json {
+                log::debug!(
+                    "Successfully parsed batch response with {} results",
+                    results.len()
+                );
                 tokio::time::sleep(Duration::from_millis(5)).await;
                 return Ok(results);
+            } else {
+                log::error!(
+                    "Expected array response but got: {}",
+                    serde_json::to_string_pretty(&json).unwrap_or_default()
+                );
+                return Err(IndexerError::RpcClientError(format!(
+                    "Expected array response but got: {}",
+                    json
+                )));
             }
-
-            return Err(IndexerError::RpcClientError(
-                "invalid batch response".into(),
-            ));
         }
 
         Err(IndexerError::RpcClientError("batch request failed".into()))
@@ -541,15 +547,6 @@ impl BitcoinIndexer {
         Arc::clone(&self.watched_addresses)
     }
 
-    async fn get_transaction_cached(&self, txid: &Txid) -> IndexerResult<Transaction> {
-        if let Some(tx) = self.tx_cache.lock().await.get(txid).cloned() {
-            return Ok(tx);
-        }
-        let tx = self.rpc_client.get_raw_transaction(txid, None).await?;
-        self.tx_cache.lock().await.put(*txid, tx.clone());
-        Ok(tx)
-    }
-
     async fn get_transactions_batch(
         &self,
         txids: &[Txid],
@@ -630,7 +627,7 @@ impl BitcoinIndexer {
         let mut cached = HashMap::new();
 
         {
-            let cache = self.tx_cache.lock().await;
+            let mut cache = self.tx_cache.lock().await;
             for (idx, tx) in block.txdata.iter().enumerate() {
                 if idx == 0 {
                     continue;
@@ -681,9 +678,17 @@ impl BitcoinIndexer {
 
         for (chunk_index, chunk) in block.txdata.chunks(500).enumerate() {
             let start_tx = chunk_index * 500;
-            let mut chunk_updates = self.process_transaction_chunk(
-                chunk, start_tx, height, block_time, &watch_set, &all_txs, &utxo_map,
-            );
+
+            let ctx = TransactionProcessingContext {
+                height,
+                block_time,
+                watch_set: &watch_set,
+                tx_map: &all_txs,
+                utxo_map: &utxo_map,
+                network: self.network,
+            };
+
+            let mut chunk_updates = self.process_transaction_chunk(chunk, start_tx, &ctx);
             utxo_updates.append(&mut chunk_updates);
         }
 
@@ -706,14 +711,8 @@ impl BitcoinIndexer {
         &self,
         chunk: &[Transaction],
         start_index: usize,
-        height: i32,
-        block_time: DateTime<Utc>,
-        watch_set: &HashSet<Address>,
-        tx_map: &HashMap<Txid, Transaction>,
-        utxo_map: &HashMap<(Txid, u32), GetTxOutResult>,
+        ctx: &TransactionProcessingContext,
     ) -> Vec<UtxoUpdate> {
-        let network = self.network;
-
         chunk
             .par_iter()
             .enumerate()
@@ -722,8 +721,8 @@ impl BitcoinIndexer {
                 let is_coinbase = start_index + i == 0;
 
                 for (vout, output) in tx.output.iter().enumerate() {
-                    if let Ok(address) = Address::from_script(&output.script_pubkey, network) {
-                        if watch_set.contains(&address) {
+                    if let Ok(address) = Address::from_script(&output.script_pubkey, ctx.network) {
+                        if ctx.watch_set.contains(&address) {
                             let script_type = determine_script_type(output.script_pubkey.clone());
                             updates.push(UtxoUpdate {
                                 id: format!("{}:{}", tx.txid(), vout),
@@ -734,8 +733,8 @@ impl BitcoinIndexer {
                                 amount: output.value.to_sat() as i64,
                                 script_pub_key: hex::encode(output.script_pubkey.as_bytes()),
                                 script_type,
-                                created_at: block_time,
-                                block_height: height,
+                                created_at: ctx.block_time,
+                                block_height: ctx.height,
                                 spent_txid: None,
                                 spent_at: None,
                                 spent_block: None,
@@ -751,12 +750,13 @@ impl BitcoinIndexer {
                         }
                         let prev_txid = input.previous_output.txid;
                         let vout = input.previous_output.vout;
-                        if let Some(prev_tx) = tx_map.get(&prev_txid) {
+
+                        if let Some(prev_tx) = ctx.tx_map.get(&prev_txid) {
                             if let Some(prev_output) = prev_tx.output.get(vout as usize) {
                                 if let Ok(address) =
-                                    Address::from_script(&prev_output.script_pubkey, network)
+                                    Address::from_script(&prev_output.script_pubkey, ctx.network)
                                 {
-                                    if watch_set.contains(&address) {
+                                    if ctx.watch_set.contains(&address) {
                                         updates.push(UtxoUpdate {
                                             id: format!("{prev_txid}:{vout}"),
                                             address: address.to_string(),
@@ -770,11 +770,11 @@ impl BitcoinIndexer {
                                             script_type: determine_script_type(
                                                 prev_output.script_pubkey.clone(),
                                             ),
-                                            created_at: block_time,
-                                            block_height: height,
+                                            created_at: ctx.block_time,
+                                            block_height: ctx.height,
                                             spent_txid: Some(tx.txid().to_string()),
-                                            spent_at: Some(block_time),
-                                            spent_block: Some(height),
+                                            spent_at: Some(ctx.block_time),
+                                            spent_block: Some(ctx.height),
                                         });
                                         continue;
                                     }
@@ -782,11 +782,11 @@ impl BitcoinIndexer {
                             }
                         }
 
-                        if let Some(txout) = utxo_map.get(&(prev_txid, vout)) {
+                        if let Some(txout) = ctx.utxo_map.get(&(prev_txid, vout)) {
                             if let Ok(script_bytes) = hex::decode(&txout.script_pub_key.hex) {
                                 let script = ScriptBuf::from_bytes(script_bytes);
-                                if let Ok(address) = Address::from_script(&script, network) {
-                                    if watch_set.contains(&address) {
+                                if let Ok(address) = Address::from_script(&script, ctx.network) {
+                                    if ctx.watch_set.contains(&address) {
                                         updates.push(UtxoUpdate {
                                             id: format!("{prev_txid}:{vout}"),
                                             address: address.to_string(),
@@ -796,11 +796,11 @@ impl BitcoinIndexer {
                                             amount: txout.value.to_sat() as i64,
                                             script_pub_key: hex::encode(script.as_bytes()),
                                             script_type: determine_script_type(script.clone()),
-                                            created_at: block_time,
-                                            block_height: height,
+                                            created_at: ctx.block_time,
+                                            block_height: ctx.height,
                                             spent_txid: Some(tx.txid().to_string()),
-                                            spent_at: Some(block_time),
-                                            spent_block: Some(height),
+                                            spent_at: Some(ctx.block_time),
+                                            spent_block: Some(ctx.height),
                                         });
                                     }
                                 }
