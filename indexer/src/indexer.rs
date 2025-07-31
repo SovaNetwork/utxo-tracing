@@ -237,9 +237,8 @@ impl ExternalRpcClient {
             log::debug!("Raw batch response: {}", response_text);
 
             // Try to parse as JSON
-            let json: serde_json::Value = serde_json::from_str(&response_text).map_err(|e| {
-                IndexerError::RpcClientError(format!("Failed to parse JSON: {}", e))
-            })?;
+            let json: serde_json::Value = serde_json::from_str(&response_text)
+                .map_err(|e| IndexerError::RpcClientError(format!("Failed to parse JSON: {e}")))?;
 
             log::debug!("Parsed JSON type: {:?}", json);
 
@@ -256,8 +255,7 @@ impl ExternalRpcClient {
                     serde_json::to_string_pretty(&json).unwrap_or_default()
                 );
                 return Err(IndexerError::RpcClientError(format!(
-                    "Expected array response but got: {}",
-                    json
+                    "Expected array response but got: {json}"
                 )));
             }
         }
