@@ -108,6 +108,7 @@ docker-compose up -d
 | START_HEIGHT | Block height to start from | 0 |
 | POLLING_RATE | Polling interval in milliseconds | 500 |
 | MAX_BLOCKS_PER_BATCH | Maximum blocks to process in a batch | 200 |
+| BATCH_SIZE | RPC batch size for external connections | 10 |
 | API_HOST | API server host | 0.0.0.0 |
 | API_PORT | API server port | 3031 |
 | ENCLAVE_URL | URL of the signing service (enclave) | - |

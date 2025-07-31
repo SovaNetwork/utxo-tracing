@@ -69,6 +69,9 @@ pub struct Args {
     )]
     pub max_blocks_per_batch: i32,
 
+    #[arg(long, default_value = "10", help = "RPC batch size for external connections")]
+    pub batch_size: usize,
+
     #[arg(long, default_value = "0.0.0.0", help = "API server host")]
     pub api_host: String,
 
@@ -158,6 +161,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         socket_path: args.socket_path.clone(),
         start_height: args.start_height,
         max_blocks_per_batch: args.max_blocks_per_batch,
+        batch_size: args.batch_size,
     };
     let mut indexer = BitcoinIndexer::new(config).await?;
 

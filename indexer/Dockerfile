@@ -50,6 +50,7 @@ ENV SOCKET_PATH="/tmp/network-utxos.sock" \
     START_HEIGHT=0 \
     POLLING_RATE=500 \
     MAX_BLOCKS_PER_BATCH=200 \
+    BATCH_SIZE=10 \
     API_HOST=0.0.0.0 \
     API_PORT=3031 \
     ENCLAVE_URL="http://network-enclave:5555" \
@@ -68,6 +69,7 @@ CMD indexer \
     --start-height "$START_HEIGHT" \
     --polling-rate "$POLLING_RATE" \
     --max-blocks-per-batch "$MAX_BLOCKS_PER_BATCH" \
+    --batch-size "$BATCH_SIZE" \
     --api-host "$API_HOST" \
     --api-port "$API_PORT" \
     --log-level "$LOG_LEVEL"
