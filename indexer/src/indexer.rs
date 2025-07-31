@@ -1,4 +1,8 @@
-use std::time::Duration;
+use std::any::Any;
+use std::time::{Duration, Instant};
+
+use futures::future::join_all;
+use rayon::prelude::*;
 
 use async_trait::async_trait;
 use bitcoincore_rpc::bitcoin::consensus;
@@ -10,7 +14,7 @@ use chrono::{DateTime, Utc};
 use log::{error, info};
 use lru::LruCache;
 use network_shared::{BlockUpdate, SocketTransport, UtxoUpdate, FINALITY_CONFIRMATIONS};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -19,9 +23,19 @@ use tokio::sync::{Mutex, RwLock};
 use crate::error::{IndexerError, Result as IndexerResult};
 use crate::utils::{determine_script_type, extract_public_key};
 
+struct TransactionProcessingContext<'a> {
+    height: i32,
+    block_time: DateTime<Utc>,
+    watch_set: &'a HashSet<Address>,
+    tx_map: &'a HashMap<Txid, Transaction>,
+    utxo_map: &'a HashMap<(Txid, u32), GetTxOutResult>,
+    network: Network,
+}
+
 /// Abstraction over Bitcoin RPC clients
 #[async_trait]
-pub trait BitcoinRpcClient {
+pub trait BitcoinRpcClient: Any + Send + Sync {
+    fn as_any(&self) -> &dyn Any;
     async fn get_block_count(&self) -> IndexerResult<u64>;
     async fn get_block_hash(&self, height: u64) -> IndexerResult<BlockHash>;
     async fn get_block(&self, block_hash: &BlockHash) -> IndexerResult<Block>;
@@ -53,6 +67,9 @@ impl BitcoinCoreRpcClient {
 
 #[async_trait]
 impl BitcoinRpcClient for BitcoinCoreRpcClient {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
     async fn get_block_count(&self) -> IndexerResult<u64> {
         Ok(self.client.get_block_count()?)
     }
@@ -93,63 +110,270 @@ pub struct ExternalRpcClient {
     rpc_url: String,
     rpc_user: Option<String>,
     rpc_password: Option<String>,
+    batch_size: usize,
 }
 
 impl ExternalRpcClient {
     pub fn new(rpc_url: String, rpc_user: Option<String>, rpc_password: Option<String>) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(120))
+            .pool_max_idle_per_host(2)
+            .pool_idle_timeout(Duration::from_secs(60))
+            .build()
+            .expect("failed to build client");
         Self {
-            client: reqwest::Client::new(),
+            client,
             rpc_url,
             rpc_user,
             rpc_password,
+            batch_size: 10,
         }
     }
 
-    async fn make_rpc_call(
+    async fn make_rpc_call_optimized(
         &self,
         method: &str,
         params: Vec<serde_json::Value>,
     ) -> IndexerResult<serde_json::Value> {
-        let mut req = self.client.post(&self.rpc_url).json(&serde_json::json!({
-            "jsonrpc": "1.0",
-            "id": "1",
-            "method": method,
-            "params": params,
-        }));
+        for attempt in 0..3 {
+            let mut req = self
+                .client
+                .post(&self.rpc_url)
+                .json(&serde_json::json!({
+                    "jsonrpc": "1.0",
+                    "id": "1",
+                    "method": method,
+                    "params": params,
+                }))
+                .timeout(Duration::from_secs(60));
 
-        if let Some(user) = &self.rpc_user {
-            req = req.basic_auth(user, self.rpc_password.as_deref());
+            if let Some(user) = &self.rpc_user {
+                req = req.basic_auth(user, self.rpc_password.as_deref());
+            }
+
+            let resp = match req.send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    if attempt == 2 {
+                        return Err(IndexerError::RpcClientError(e.to_string()));
+                    }
+                    tokio::time::sleep(Duration::from_secs(1 << attempt)).await;
+                    continue;
+                }
+            };
+
+            if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                tokio::time::sleep(Duration::from_secs(1 << attempt)).await;
+                continue;
+            }
+
+            let json: serde_json::Value = resp
+                .json()
+                .await
+                .map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
+            if let Some(error) = json.get("error") {
+                if !error.is_null() {
+                    return Err(IndexerError::RpcClientError(format!("RPC error: {error}")));
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            return json
+                .get("result")
+                .cloned()
+                .ok_or_else(|| IndexerError::RpcClientError("missing result".into()));
         }
 
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
-        let json: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
-        if let Some(error) = json.get("error") {
-            if !error.is_null() {
-                return Err(IndexerError::RpcClientError(format!("RPC error: {error}")));
+        Err(IndexerError::RpcClientError("RPC call failed".into()))
+    }
+
+    async fn send_batch(
+        &self,
+        batch: Vec<serde_json::Value>,
+    ) -> IndexerResult<Vec<serde_json::Value>> {
+        // Log the request being sent
+        log::debug!("Sending batch request with {} items", batch.len());
+        log::debug!(
+            "Batch request: {}",
+            serde_json::to_string_pretty(&batch).unwrap_or_default()
+        );
+
+        for attempt in 0..3 {
+            let mut req = self
+                .client
+                .post(&self.rpc_url)
+                .json(&batch)
+                .timeout(Duration::from_secs(60));
+
+            if let Some(user) = &self.rpc_user {
+                req = req.basic_auth(user, self.rpc_password.as_deref());
+            }
+
+            let resp = match req.send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    log::error!("Batch request failed on attempt {}: {}", attempt + 1, e);
+                    if attempt == 2 {
+                        return Err(IndexerError::RpcClientError(e.to_string()));
+                    }
+                    tokio::time::sleep(Duration::from_secs(1 << attempt)).await;
+                    continue;
+                }
+            };
+
+            log::debug!("Batch response status: {}", resp.status());
+
+            if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                log::warn!("Rate limited, retrying in {} seconds", 1 << attempt);
+                tokio::time::sleep(Duration::from_secs(1 << attempt)).await;
+                continue;
+            }
+
+            // Get response as text first to see what we're actually getting
+            let response_text = resp
+                .text()
+                .await
+                .map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
+
+            log::debug!("Raw batch response: {}", response_text);
+
+            // Try to parse as JSON
+            let json: serde_json::Value = serde_json::from_str(&response_text)
+                .map_err(|e| IndexerError::RpcClientError(format!("Failed to parse JSON: {e}")))?;
+
+            log::debug!("Parsed JSON type: {:?}", json);
+
+            if let serde_json::Value::Array(results) = json {
+                log::debug!(
+                    "Successfully parsed batch response with {} results",
+                    results.len()
+                );
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                return Ok(results);
+            } else {
+                log::error!(
+                    "Expected array response but got: {}",
+                    serde_json::to_string_pretty(&json).unwrap_or_default()
+                );
+                return Err(IndexerError::RpcClientError(format!(
+                    "Expected array response but got: {json}"
+                )));
             }
         }
-        json.get("result")
-            .cloned()
-            .ok_or_else(|| IndexerError::RpcClientError("missing result".into()))
+
+        Err(IndexerError::RpcClientError("batch request failed".into()))
+    }
+
+    pub async fn get_raw_transactions_batch(
+        &self,
+        txids: &[Txid],
+    ) -> IndexerResult<HashMap<Txid, Transaction>> {
+        let mut results = HashMap::new();
+
+        for chunk in txids.chunks(self.batch_size) {
+            let mut batch = Vec::new();
+            let mut id_map = HashMap::new();
+
+            for (i, txid) in chunk.iter().enumerate() {
+                id_map.insert(i as u64, *txid);
+                batch.push(serde_json::json!({
+                    "jsonrpc": "1.0",
+                    "id": i,
+                    "method": "getrawtransaction",
+                    "params": [txid.to_string(), false],
+                }));
+            }
+
+            let responses = self.send_batch(batch).await?;
+
+            for resp in responses {
+                if let Some(err) = resp.get("error") {
+                    if !err.is_null() {
+                        continue;
+                    }
+                }
+
+                if let (Some(id_val), Some(result_val)) = (resp.get("id"), resp.get("result")) {
+                    if let Ok(id) = serde_json::from_value::<u64>(id_val.clone()) {
+                        if let Some(txid) = id_map.get(&id) {
+                            if let Ok(hex) = serde_json::from_value::<String>(result_val.clone()) {
+                                if let Ok(bytes) = hex::decode(hex) {
+                                    if let Ok(tx) = consensus::deserialize::<Transaction>(&bytes) {
+                                        results.insert(*txid, tx);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(results)
+    }
+
+    pub async fn get_tx_outs_batch(
+        &self,
+        outpoints: &[(Txid, u32)],
+    ) -> IndexerResult<HashMap<(Txid, u32), GetTxOutResult>> {
+        let mut results = HashMap::new();
+
+        for chunk in outpoints.chunks(self.batch_size) {
+            let mut batch = Vec::new();
+            let mut id_map = HashMap::new();
+
+            for (i, (txid, vout)) in chunk.iter().enumerate() {
+                id_map.insert(i as u64, (*txid, *vout));
+                batch.push(serde_json::json!({
+                    "jsonrpc": "1.0",
+                    "id": i,
+                    "method": "gettxout",
+                    "params": [txid.to_string(), *vout],
+                }));
+            }
+
+            let responses = self.send_batch(batch).await?;
+
+            for resp in responses {
+                if let Some(err) = resp.get("error") {
+                    if !err.is_null() {
+                        continue;
+                    }
+                }
+
+                if let (Some(id_val), Some(result_val)) = (resp.get("id"), resp.get("result")) {
+                    if result_val.is_null() {
+                        continue;
+                    }
+                    if let Ok(id) = serde_json::from_value::<u64>(id_val.clone()) {
+                        if let Some((txid, vout)) = id_map.get(&id) {
+                            if let Ok(txout) =
+                                serde_json::from_value::<GetTxOutResult>(result_val.clone())
+                            {
+                                results.insert((*txid, *vout), txout);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(results)
     }
 }
 
 #[async_trait]
 impl BitcoinRpcClient for ExternalRpcClient {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
     async fn get_block_count(&self) -> IndexerResult<u64> {
-        let res = self.make_rpc_call("getblockcount", vec![]).await?;
+        let res = self
+            .make_rpc_call_optimized("getblockcount", vec![])
+            .await?;
         Ok(serde_json::from_value(res).map_err(|e| IndexerError::RpcClientError(e.to_string()))?)
     }
 
     async fn get_block_hash(&self, height: u64) -> IndexerResult<BlockHash> {
         let res = self
-            .make_rpc_call("getblockhash", vec![serde_json::json!(height)])
+            .make_rpc_call_optimized("getblockhash", vec![serde_json::json!(height)])
             .await?;
         let hash_str: String =
             serde_json::from_value(res).map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
@@ -159,7 +383,7 @@ impl BitcoinRpcClient for ExternalRpcClient {
 
     async fn get_block(&self, block_hash: &BlockHash) -> IndexerResult<Block> {
         let res = self
-            .make_rpc_call(
+            .make_rpc_call_optimized(
                 "getblock",
                 vec![
                     serde_json::json!(block_hash.to_string()),
@@ -176,7 +400,7 @@ impl BitcoinRpcClient for ExternalRpcClient {
 
     async fn get_block_info(&self, block_hash: &BlockHash) -> IndexerResult<GetBlockResult> {
         let res = self
-            .make_rpc_call(
+            .make_rpc_call_optimized(
                 "getblock",
                 vec![
                     serde_json::json!(block_hash.to_string()),
@@ -197,7 +421,7 @@ impl BitcoinRpcClient for ExternalRpcClient {
         if let Some(include) = include_mempool {
             params.push(serde_json::json!(include));
         }
-        let res = self.make_rpc_call("gettxout", params).await?;
+        let res = self.make_rpc_call_optimized("gettxout", params).await?;
         if res.is_null() {
             return Ok(None);
         }
@@ -218,7 +442,9 @@ impl BitcoinRpcClient for ExternalRpcClient {
         if let Some(hash) = block_hash {
             params.push(serde_json::json!(hash.to_string()));
         }
-        let res = self.make_rpc_call("getrawtransaction", params).await?;
+        let res = self
+            .make_rpc_call_optimized("getrawtransaction", params)
+            .await?;
         let hex: String =
             serde_json::from_value(res).map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
         let bytes = hex::decode(hex).map_err(|e| IndexerError::RpcClientError(e.to_string()))?;
@@ -310,7 +536,7 @@ impl BitcoinIndexer {
             start_height: config.start_height,
             max_blocks_per_batch: config.max_blocks_per_batch,
             watched_addresses: Arc::new(RwLock::new(HashSet::new())),
-            tx_cache: Mutex::new(LruCache::new(NonZeroUsize::new(10_000).unwrap())),
+            tx_cache: Mutex::new(LruCache::new(NonZeroUsize::new(100_000).unwrap())),
         })
     }
 
@@ -319,13 +545,46 @@ impl BitcoinIndexer {
         Arc::clone(&self.watched_addresses)
     }
 
-    async fn get_transaction_cached(&self, txid: &Txid) -> IndexerResult<Transaction> {
-        if let Some(tx) = self.tx_cache.lock().await.get(txid).cloned() {
-            return Ok(tx);
+    async fn get_transactions_batch(
+        &self,
+        txids: &[Txid],
+    ) -> IndexerResult<HashMap<Txid, Transaction>> {
+        if let Some(client) = self.rpc_client.as_any().downcast_ref::<ExternalRpcClient>() {
+            client.get_raw_transactions_batch(txids).await
+        } else {
+            let futures = txids
+                .iter()
+                .map(|txid| self.rpc_client.get_raw_transaction(txid, None));
+            let results = join_all(futures).await;
+            let mut map = HashMap::new();
+            for (txid, res) in txids.iter().cloned().zip(results) {
+                if let Ok(tx) = res {
+                    map.insert(txid, tx);
+                }
+            }
+            Ok(map)
         }
-        let tx = self.rpc_client.get_raw_transaction(txid, None).await?;
-        self.tx_cache.lock().await.put(*txid, tx.clone());
-        Ok(tx)
+    }
+
+    async fn get_utxo_batch(
+        &self,
+        outpoints: &[(Txid, u32)],
+    ) -> IndexerResult<HashMap<(Txid, u32), GetTxOutResult>> {
+        if let Some(client) = self.rpc_client.as_any().downcast_ref::<ExternalRpcClient>() {
+            client.get_tx_outs_batch(outpoints).await
+        } else {
+            let futures = outpoints
+                .iter()
+                .map(|(txid, vout)| self.rpc_client.get_tx_out(txid, *vout, None));
+            let results = join_all(futures).await;
+            let mut map = HashMap::new();
+            for ((txid, vout), res) in outpoints.iter().cloned().zip(results) {
+                if let Ok(Some(txout)) = res {
+                    map.insert((txid, vout), txout);
+                }
+            }
+            Ok(map)
+        }
     }
 
     /// Gets block data for a given block hash and process transactions
@@ -355,126 +614,84 @@ impl BitcoinIndexer {
         height: i32,
         block_time: DateTime<Utc>,
     ) -> IndexerResult<Vec<UtxoUpdate>> {
-        let start_time = std::time::Instant::now();
-
+        let start_time = Instant::now();
         let watch_set = self.watched_addresses.read().await.clone();
         if watch_set.is_empty() {
             return Ok(Vec::new());
         }
 
-        let mut utxo_updates = Vec::new();
-        let mut input_count = 0usize;
-        let mut output_count = 0usize;
+        let mut needed_txids = HashSet::new();
+        let mut outpoints = HashSet::new();
+        let mut cached = HashMap::new();
 
-        for (tx_index, tx) in block.txdata.iter().enumerate() {
-            let is_coinbase = tx_index == 0;
-
-            for (vout, output) in tx.output.iter().enumerate() {
-                output_count += 1;
-                if let Ok(address) = Address::from_script(&output.script_pubkey, self.network) {
-                    if watch_set.contains(&address) {
-                        let script_type = determine_script_type(output.script_pubkey.clone());
-                        let utxo = UtxoUpdate {
-                            id: format!("{}:{}", tx.txid(), vout),
-                            address: address.to_string(),
-                            public_key: None,
-                            txid: tx.txid().to_string(),
-                            vout: vout as i32,
-                            amount: output.value.to_sat() as i64,
-                            script_pub_key: hex::encode(output.script_pubkey.as_bytes()),
-                            script_type,
-                            created_at: block_time,
-                            block_height: height,
-                            spent_txid: None,
-                            spent_at: None,
-                            spent_block: None,
-                        };
-                        utxo_updates.push(utxo);
-                    }
+        {
+            let mut cache = self.tx_cache.lock().await;
+            for (idx, tx) in block.txdata.iter().enumerate() {
+                if idx == 0 {
+                    continue;
                 }
-            }
-
-            if !is_coinbase {
-                for input in tx.input.iter() {
-                    input_count += 1;
+                for input in &tx.input {
                     if input.previous_output.is_null() {
-                        if !is_coinbase {
-                            error!("Found null previous output in non-coinbase transaction");
-                        } else {
-                            info!("Skipping coinbase transaction input");
-                        }
                         continue;
                     }
-
-                    let prev_txid = input.previous_output.txid;
+                    let txid = input.previous_output.txid;
                     let vout = input.previous_output.vout;
-
-                    let mut processed = false;
-
-                    if let Ok(prev_tx) = self.get_transaction_cached(&prev_txid).await {
-                        if let Some(prev_output) = prev_tx.output.get(vout as usize) {
-                            if let Ok(address) =
-                                Address::from_script(&prev_output.script_pubkey, self.network)
-                            {
-                                if watch_set.contains(&address) {
-                                    let spent_utxo = UtxoUpdate {
-                                        id: format!("{prev_txid}:{vout}"),
-                                        address: address.to_string(),
-                                        public_key: extract_public_key(&input.witness),
-                                        txid: prev_txid.to_string(),
-                                        vout: vout as i32,
-                                        amount: prev_output.value.to_sat() as i64,
-                                        script_pub_key: hex::encode(
-                                            prev_output.script_pubkey.as_bytes(),
-                                        ),
-                                        script_type: determine_script_type(
-                                            prev_output.script_pubkey.clone(),
-                                        ),
-                                        created_at: block_time,
-                                        block_height: height,
-                                        spent_txid: Some(tx.txid().to_string()),
-                                        spent_at: Some(block_time),
-                                        spent_block: Some(height),
-                                    };
-                                    utxo_updates.push(spent_utxo);
-                                    processed = true;
-                                }
-                            }
-                        }
-                    }
-
-                    if !processed {
-                        if let Ok(Some(txout)) =
-                            self.rpc_client.get_tx_out(&prev_txid, vout, None).await
-                        {
-                            if let Ok(script_bytes) = hex::decode(txout.script_pub_key.hex) {
-                                let script = ScriptBuf::from_bytes(script_bytes);
-                                if let Ok(address) = Address::from_script(&script, self.network) {
-                                    if watch_set.contains(&address) {
-                                        let spent_utxo = UtxoUpdate {
-                                            id: format!("{prev_txid}:{vout}"),
-                                            address: address.to_string(),
-                                            public_key: extract_public_key(&input.witness),
-                                            txid: prev_txid.to_string(),
-                                            vout: vout as i32,
-                                            amount: txout.value.to_sat() as i64,
-                                            script_pub_key: hex::encode(script.as_bytes()),
-                                            script_type: determine_script_type(script.clone()),
-                                            created_at: block_time,
-                                            block_height: height,
-                                            spent_txid: Some(tx.txid().to_string()),
-                                            spent_at: Some(block_time),
-                                            spent_block: Some(height),
-                                        };
-                                        utxo_updates.push(spent_utxo);
-                                    }
-                                }
-                            }
-                        }
+                    if let Some(ptx) = cache.get(&txid) {
+                        cached.insert(txid, ptx.clone());
+                    } else {
+                        needed_txids.insert(txid);
+                        outpoints.insert((txid, vout));
                     }
                 }
             }
         }
+
+        let fetched = self
+            .get_transactions_batch(&needed_txids.iter().cloned().collect::<Vec<_>>())
+            .await?;
+        {
+            let mut cache = self.tx_cache.lock().await;
+            for (txid, tx) in &fetched {
+                cache.put(*txid, tx.clone());
+            }
+        }
+
+        let mut all_txs = cached;
+        all_txs.extend(fetched);
+
+        let mut missing_utxos = Vec::new();
+        for (txid, vout) in outpoints {
+            if let Some(tx) = all_txs.get(&txid) {
+                if tx.output.get(vout as usize).is_none() {
+                    missing_utxos.push((txid, vout));
+                }
+            } else {
+                missing_utxos.push((txid, vout));
+            }
+        }
+
+        let utxo_map = self.get_utxo_batch(&missing_utxos).await?;
+
+        let mut utxo_updates = Vec::new();
+
+        for (chunk_index, chunk) in block.txdata.chunks(500).enumerate() {
+            let start_tx = chunk_index * 500;
+
+            let ctx = TransactionProcessingContext {
+                height,
+                block_time,
+                watch_set: &watch_set,
+                tx_map: &all_txs,
+                utxo_map: &utxo_map,
+                network: self.network,
+            };
+
+            let mut chunk_updates = self.process_transaction_chunk(chunk, start_tx, &ctx);
+            utxo_updates.append(&mut chunk_updates);
+        }
+
+        let input_count: usize = block.txdata.iter().map(|t| t.input.len()).sum();
+        let output_count: usize = block.txdata.iter().map(|t| t.output.len()).sum();
 
         info!(
             "Processed block {} with {} transactions ({} inputs, {} outputs) in {:?}",
@@ -486,6 +703,113 @@ impl BitcoinIndexer {
         );
 
         Ok(utxo_updates)
+    }
+
+    fn process_transaction_chunk(
+        &self,
+        chunk: &[Transaction],
+        start_index: usize,
+        ctx: &TransactionProcessingContext,
+    ) -> Vec<UtxoUpdate> {
+        chunk
+            .par_iter()
+            .enumerate()
+            .flat_map(|(i, tx)| {
+                let mut updates = Vec::new();
+                let is_coinbase = start_index + i == 0;
+
+                for (vout, output) in tx.output.iter().enumerate() {
+                    if let Ok(address) = Address::from_script(&output.script_pubkey, ctx.network) {
+                        if ctx.watch_set.contains(&address) {
+                            let script_type = determine_script_type(output.script_pubkey.clone());
+                            updates.push(UtxoUpdate {
+                                id: format!("{}:{}", tx.txid(), vout),
+                                address: address.to_string(),
+                                public_key: None,
+                                txid: tx.txid().to_string(),
+                                vout: vout as i32,
+                                amount: output.value.to_sat() as i64,
+                                script_pub_key: hex::encode(output.script_pubkey.as_bytes()),
+                                script_type,
+                                created_at: ctx.block_time,
+                                block_height: ctx.height,
+                                spent_txid: None,
+                                spent_at: None,
+                                spent_block: None,
+                            });
+                        }
+                    }
+                }
+
+                if !is_coinbase {
+                    for input in &tx.input {
+                        if input.previous_output.is_null() {
+                            continue;
+                        }
+                        let prev_txid = input.previous_output.txid;
+                        let vout = input.previous_output.vout;
+
+                        if let Some(prev_tx) = ctx.tx_map.get(&prev_txid) {
+                            if let Some(prev_output) = prev_tx.output.get(vout as usize) {
+                                if let Ok(address) =
+                                    Address::from_script(&prev_output.script_pubkey, ctx.network)
+                                {
+                                    if ctx.watch_set.contains(&address) {
+                                        updates.push(UtxoUpdate {
+                                            id: format!("{prev_txid}:{vout}"),
+                                            address: address.to_string(),
+                                            public_key: extract_public_key(&input.witness),
+                                            txid: prev_txid.to_string(),
+                                            vout: vout as i32,
+                                            amount: prev_output.value.to_sat() as i64,
+                                            script_pub_key: hex::encode(
+                                                prev_output.script_pubkey.as_bytes(),
+                                            ),
+                                            script_type: determine_script_type(
+                                                prev_output.script_pubkey.clone(),
+                                            ),
+                                            created_at: ctx.block_time,
+                                            block_height: ctx.height,
+                                            spent_txid: Some(tx.txid().to_string()),
+                                            spent_at: Some(ctx.block_time),
+                                            spent_block: Some(ctx.height),
+                                        });
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+
+                        if let Some(txout) = ctx.utxo_map.get(&(prev_txid, vout)) {
+                            if let Ok(script_bytes) = hex::decode(&txout.script_pub_key.hex) {
+                                let script = ScriptBuf::from_bytes(script_bytes);
+                                if let Ok(address) = Address::from_script(&script, ctx.network) {
+                                    if ctx.watch_set.contains(&address) {
+                                        updates.push(UtxoUpdate {
+                                            id: format!("{prev_txid}:{vout}"),
+                                            address: address.to_string(),
+                                            public_key: extract_public_key(&input.witness),
+                                            txid: prev_txid.to_string(),
+                                            vout: vout as i32,
+                                            amount: txout.value.to_sat() as i64,
+                                            script_pub_key: hex::encode(script.as_bytes()),
+                                            script_type: determine_script_type(script.clone()),
+                                            created_at: ctx.block_time,
+                                            block_height: ctx.height,
+                                            spent_txid: Some(tx.txid().to_string()),
+                                            spent_at: Some(ctx.block_time),
+                                            spent_block: Some(ctx.height),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                updates
+            })
+            .collect()
     }
 
     /// Sends a block update to the socket transport

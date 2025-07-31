@@ -70,10 +70,10 @@ services:
     profiles: [local-bitcoin, external-bitcoin]
 
   network-utxos:
-    image: ghcr.io/sovanetwork/network-utxos:v0.1.9
-    # build:
-    #   context: .
-    #   dockerfile: ./storage/Dockerfile
+    # image: ghcr.io/sovanetwork/network-utxos:v0.1.9
+    build:
+      context: .
+      dockerfile: ./storage/Dockerfile
     environment:
       - NETWORK=${BITCOIN_NETWORK}
       - HOST=${UTXO_HOST}
@@ -91,10 +91,10 @@ services:
     profiles: [local-bitcoin, external-bitcoin]
 
   network-indexer:
-    image: ghcr.io/sovanetwork/network-indexer:v0.1.9
-    # build:
-    #   context: .
-    #   dockerfile: ./indexer/Dockerfile
+    # image: ghcr.io/sovanetwork/network-indexer:v0.1.9
+    build:
+      context: .
+      dockerfile: ./indexer/Dockerfile
     environment:
       - RUST_LOG=${LOG_LEVEL}
       - NETWORK=${BITCOIN_NETWORK}

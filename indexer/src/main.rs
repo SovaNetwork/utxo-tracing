@@ -103,7 +103,7 @@ impl Args {
         }
 
         match self.parse_network() {
-            Network::Bitcoin => 2000,
+            Network::Bitcoin => 5000,
             _ => 500,
         }
     }
@@ -147,7 +147,9 @@ fn validate_enclave_url(url_str: &str) -> Result<(), String> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    env_logger::init();
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .init();
 
     let args = Args::parse();
 
