@@ -10,9 +10,7 @@ use chrono::{DateTime, Utc};
 use log::{error, info};
 use lru::LruCache;
 use network_shared::{BlockUpdate, SocketTransport, UtxoUpdate, FINALITY_CONFIRMATIONS};
-use reqwest::Client as HttpClient;
-use serde_json::Value as JsonValue;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -239,7 +237,6 @@ pub struct IndexerConfig {
     pub socket_path: String,
     pub start_height: i32,
     pub max_blocks_per_batch: i32,
-    pub utxo_url: String,
 }
 
 /// The main Bitcoin indexer that processes blocks and transactions
@@ -250,8 +247,6 @@ pub struct BitcoinIndexer {
     last_processed_height: i32,
     start_height: i32,
     max_blocks_per_batch: i32,
-    utxo_url: String,
-    http_client: HttpClient,
     pub watched_addresses: Arc<RwLock<HashSet<Address>>>,
     tx_cache: Mutex<LruCache<Txid, Transaction>>,
     utxo_cache: Mutex<LruCache<(Txid, u32), Option<UtxoUpdate>>>,
@@ -308,8 +303,6 @@ impl BitcoinIndexer {
 
         let socket_transport = SocketTransport::new(&config.socket_path);
 
-        let http_client = HttpClient::new();
-
         Ok(Self {
             rpc_client,
             network: config.network,
@@ -317,8 +310,6 @@ impl BitcoinIndexer {
             last_processed_height: config.start_height - 1,
             start_height: config.start_height,
             max_blocks_per_batch: config.max_blocks_per_batch,
-            utxo_url: config.utxo_url,
-            http_client,
             watched_addresses: Arc::new(RwLock::new(HashSet::new())),
             tx_cache: Mutex::new(LruCache::new(NonZeroUsize::new(10_000).unwrap())),
             utxo_cache: Mutex::new(LruCache::new(NonZeroUsize::new(50_000).unwrap())),
@@ -328,65 +319,6 @@ impl BitcoinIndexer {
     /// Returns a clone of the watched address set
     pub fn watched_addresses(&self) -> Arc<RwLock<HashSet<Address>>> {
         Arc::clone(&self.watched_addresses)
-    }
-
-    async fn get_tracked_utxo(&self, txid: &str, vout: u32) -> Option<UtxoUpdate> {
-        let url = format!("{}/utxo/{}/{}", self.utxo_url, txid, vout);
-        if let Ok(resp) = self.http_client.get(url).send().await {
-            if resp.status().is_success() {
-                if let Ok(value) = resp.json::<JsonValue>().await {
-                    if let Some(utxo_val) = value.get("utxo") {
-                        if let Ok(utxo) = serde_json::from_value::<UtxoUpdate>(utxo_val.clone()) {
-                            return Some(utxo);
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    async fn fetch_tracked_utxos_batch(
-        &self,
-        outpoints: &[(Txid, u32)],
-    ) -> HashMap<(Txid, u32), Option<UtxoUpdate>> {
-        let mut results = HashMap::new();
-        for chunk in outpoints.chunks(50) {
-            let mut join_set = tokio::task::JoinSet::new();
-            for (txid, vout) in chunk.iter() {
-                let client = self.http_client.clone();
-                let base = self.utxo_url.clone();
-                let txid_c = *txid;
-                let vout_c = *vout;
-                join_set.spawn(async move {
-                    let url = format!("{base}/utxo/{txid_c}/{vout_c}");
-                    if let Ok(resp) = client.get(url).send().await {
-                        if resp.status().is_success() {
-                            if let Ok(value) = resp.json::<JsonValue>().await {
-                                if let Some(utxo_val) = value.get("utxo") {
-                                    if let Ok(utxo) =
-                                        serde_json::from_value::<UtxoUpdate>(utxo_val.clone())
-                                    {
-                                        return ((txid_c, vout_c), Some(utxo));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    ((txid_c, vout_c), None)
-                });
-
-                if join_set.len() >= 10 {
-                    if let Some(Ok((key, val))) = join_set.join_next().await {
-                        results.insert(key, val);
-                    }
-                }
-            }
-            while let Some(Ok((key, val))) = join_set.join_next().await {
-                results.insert(key, val);
-            }
-        }
-        results
     }
 
     async fn get_transaction_cached(&self, txid: &Txid) -> IndexerResult<Transaction> {
@@ -404,9 +336,29 @@ impl BitcoinIndexer {
             return Ok(cached);
         }
 
-        if let Some(utxo) = self.get_tracked_utxo(&txid.to_string(), vout).await {
-            self.utxo_cache.lock().await.put(key, Some(utxo.clone()));
-            return Ok(Some(utxo));
+        if let Ok(prev_tx) = self.get_transaction_cached(txid).await {
+            if let Some(prev_output) = prev_tx.output.get(vout as usize) {
+                if let Ok(address) = Address::from_script(&prev_output.script_pubkey, self.network)
+                {
+                    let utxo = UtxoUpdate {
+                        id: format!("{txid}:{vout}"),
+                        address: address.to_string(),
+                        public_key: None,
+                        txid: txid.to_string(),
+                        vout: vout as i32,
+                        amount: prev_output.value.to_sat() as i64,
+                        script_pub_key: hex::encode(prev_output.script_pubkey.as_bytes()),
+                        script_type: determine_script_type(prev_output.script_pubkey.clone()),
+                        created_at: Utc::now(),
+                        block_height: 0,
+                        spent_txid: None,
+                        spent_at: None,
+                        spent_block: None,
+                    };
+                    self.utxo_cache.lock().await.put(key, Some(utxo.clone()));
+                    return Ok(Some(utxo));
+                }
+            }
         }
 
         if let Ok(Some(txout)) = self.rpc_client.get_tx_out(txid, vout, None).await {
@@ -431,29 +383,6 @@ impl BitcoinIndexer {
                     self.utxo_cache.lock().await.put(key, Some(utxo.clone()));
                     return Ok(Some(utxo));
                 }
-            }
-        }
-
-        if let Ok(prev_tx) = self.get_transaction_cached(txid).await {
-            let prev_output = &prev_tx.output[vout as usize];
-            if let Ok(address) = Address::from_script(&prev_output.script_pubkey, self.network) {
-                let utxo = UtxoUpdate {
-                    id: format!("{txid}:{vout}"),
-                    address: address.to_string(),
-                    public_key: None,
-                    txid: txid.to_string(),
-                    vout: vout as i32,
-                    amount: prev_output.value.to_sat() as i64,
-                    script_pub_key: hex::encode(prev_output.script_pubkey.as_bytes()),
-                    script_type: determine_script_type(prev_output.script_pubkey.clone()),
-                    created_at: Utc::now(),
-                    block_height: 0,
-                    spent_txid: None,
-                    spent_at: None,
-                    spent_block: None,
-                };
-                self.utxo_cache.lock().await.put(key, Some(utxo.clone()));
-                return Ok(Some(utxo));
             }
         }
 
@@ -482,6 +411,7 @@ impl BitcoinIndexer {
     }
 
     /// Processes all transactions in a block
+
     async fn process_transactions(
         &self,
         block: &Block,
@@ -498,7 +428,6 @@ impl BitcoinIndexer {
         let mut utxo_updates = Vec::new();
         let mut input_count = 0usize;
         let mut output_count = 0usize;
-        let mut needed_outpoints: HashSet<(Txid, u32)> = HashSet::new();
 
         for (tx_index, tx) in block.txdata.iter().enumerate() {
             let is_coinbase = tx_index == 0;
@@ -530,60 +459,80 @@ impl BitcoinIndexer {
 
             if !is_coinbase {
                 for input in tx.input.iter() {
-                    if !input.previous_output.is_null() {
-                        needed_outpoints
-                            .insert((input.previous_output.txid, input.previous_output.vout));
+                    input_count += 1;
+                    if input.previous_output.is_null() {
+                        if !is_coinbase {
+                            error!("Found null previous output in non-coinbase transaction");
+                        } else {
+                            info!("Skipping coinbase transaction input");
+                        }
+                        continue;
                     }
-                }
-            }
-        }
 
-        let fetched = self
-            .fetch_tracked_utxos_batch(&needed_outpoints.iter().cloned().collect::<Vec<_>>())
-            .await;
+                    let prev_txid = input.previous_output.txid;
+                    let vout = input.previous_output.vout;
 
-        for (tx_index, tx) in block.txdata.iter().enumerate() {
-            let is_coinbase = tx_index == 0;
-            for input in tx.input.iter() {
-                input_count += 1;
-                if input.previous_output.is_null() {
-                    if !is_coinbase {
-                        error!("Found null previous output in non-coinbase transaction");
-                    } else {
-                        info!("Skipping coinbase transaction input");
-                    }
-                    continue;
-                }
+                    let mut processed = false;
 
-                let key = (input.previous_output.txid, input.previous_output.vout);
-                let mut utxo_opt = fetched.get(&key).cloned().flatten();
-                if utxo_opt.is_none() {
-                    utxo_opt = self.get_utxo_cached(&key.0, key.1).await?;
-                }
-
-                if let Some(utxo) = utxo_opt {
-                    if let Ok(addr_unchecked) = Address::from_str(&utxo.address) {
-                        if let Ok(address) = addr_unchecked.require_network(self.network) {
-                            if !watch_set.contains(&address) {
-                                continue;
+                    if let Ok(prev_tx) = self.get_transaction_cached(&prev_txid).await {
+                        if let Some(prev_output) = prev_tx.output.get(vout as usize) {
+                            if let Ok(address) =
+                                Address::from_script(&prev_output.script_pubkey, self.network)
+                            {
+                                if watch_set.contains(&address) {
+                                    let spent_utxo = UtxoUpdate {
+                                        id: format!("{}:{}", prev_txid, vout),
+                                        address: address.to_string(),
+                                        public_key: extract_public_key(&input.witness),
+                                        txid: prev_txid.to_string(),
+                                        vout: vout as i32,
+                                        amount: prev_output.value.to_sat() as i64,
+                                        script_pub_key: hex::encode(
+                                            prev_output.script_pubkey.as_bytes(),
+                                        ),
+                                        script_type: determine_script_type(
+                                            prev_output.script_pubkey.clone(),
+                                        ),
+                                        created_at: block_time,
+                                        block_height: height,
+                                        spent_txid: Some(tx.txid().to_string()),
+                                        spent_at: Some(block_time),
+                                        spent_block: Some(height),
+                                    };
+                                    utxo_updates.push(spent_utxo);
+                                    processed = true;
+                                }
                             }
+                        }
+                    }
 
-                            let spent_utxo = UtxoUpdate {
-                                id: format!("{}:{}", input.previous_output.txid, key.1),
-                                address: address.to_string(),
-                                public_key: extract_public_key(&input.witness),
-                                txid: key.0.to_string(),
-                                vout: key.1 as i32,
-                                amount: utxo.amount,
-                                script_pub_key: utxo.script_pub_key,
-                                script_type: utxo.script_type,
-                                created_at: block_time,
-                                block_height: height,
-                                spent_txid: Some(tx.txid().to_string()),
-                                spent_at: Some(block_time),
-                                spent_block: Some(height),
-                            };
-                            utxo_updates.push(spent_utxo);
+                    if !processed {
+                        if let Ok(Some(txout)) =
+                            self.rpc_client.get_tx_out(&prev_txid, vout, None).await
+                        {
+                            if let Ok(script_bytes) = hex::decode(txout.script_pub_key.hex) {
+                                let script = ScriptBuf::from_bytes(script_bytes);
+                                if let Ok(address) = Address::from_script(&script, self.network) {
+                                    if watch_set.contains(&address) {
+                                        let spent_utxo = UtxoUpdate {
+                                            id: format!("{}:{}", prev_txid, vout),
+                                            address: address.to_string(),
+                                            public_key: extract_public_key(&input.witness),
+                                            txid: prev_txid.to_string(),
+                                            vout: vout as i32,
+                                            amount: txout.value.to_sat() as i64,
+                                            script_pub_key: hex::encode(script.as_bytes()),
+                                            script_type: determine_script_type(script.clone()),
+                                            created_at: block_time,
+                                            block_height: height,
+                                            spent_txid: Some(tx.txid().to_string()),
+                                            spent_at: Some(block_time),
+                                            spent_block: Some(height),
+                                        };
+                                        utxo_updates.push(spent_utxo);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -601,7 +550,6 @@ impl BitcoinIndexer {
 
         Ok(utxo_updates)
     }
-
     /// Sends a block update to the socket transport
     async fn send_block_update(&self, update: &BlockUpdate) -> IndexerResult<()> {
         self.socket_transport.send_update(update).await?;

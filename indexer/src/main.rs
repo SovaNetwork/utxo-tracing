@@ -165,7 +165,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         socket_path: args.socket_path.clone(),
         start_height: args.start_height,
         max_blocks_per_batch: args.max_blocks_per_batch,
-        utxo_url: utxo_url.clone(),
     };
     let mut indexer = BitcoinIndexer::new(config).await?;
 
