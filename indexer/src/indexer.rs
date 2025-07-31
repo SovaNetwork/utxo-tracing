@@ -114,7 +114,12 @@ pub struct ExternalRpcClient {
 }
 
 impl ExternalRpcClient {
-    pub fn new(rpc_url: String, rpc_user: Option<String>, rpc_password: Option<String>) -> Self {
+    pub fn new(
+        rpc_url: String,
+        rpc_user: Option<String>,
+        rpc_password: Option<String>,
+        batch_size: usize,
+    ) -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(120))
             .pool_max_idle_per_host(2)
@@ -126,7 +131,7 @@ impl ExternalRpcClient {
             rpc_url,
             rpc_user,
             rpc_password,
-            batch_size: 10,
+            batch_size,
         }
     }
 
@@ -463,6 +468,7 @@ pub struct IndexerConfig {
     pub socket_path: String,
     pub start_height: i32,
     pub max_blocks_per_batch: i32,
+    pub batch_size: usize,
 }
 
 /// The main Bitcoin indexer that processes blocks and transactions
@@ -504,7 +510,12 @@ impl BitcoinIndexer {
                     } else {
                         Some(config.rpc_password.clone())
                     };
-                    Arc::new(ExternalRpcClient::new(config.rpc_host.clone(), user, pass))
+                    Arc::new(ExternalRpcClient::new(
+                        config.rpc_host.clone(),
+                        user,
+                        pass,
+                        config.batch_size,
+                    ))
                 }
                 other => {
                     return Err(IndexerError::InvalidConfiguration(format!(
