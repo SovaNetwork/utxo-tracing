@@ -98,7 +98,8 @@ docker-compose up -d
 
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
-| RUST_LOG | Log level | info |
+| RUST_LOG | Log level (env_logger) | info |
+| LOG_LEVEL | CLI log level | info |
 | RPC_HOST | Bitcoin RPC host url | http://bitcoin-regtest:18443 |
 | RPC_USER | Bitcoin RPC username | user |
 | RPC_PASSWORD | Bitcoin RPC password | password |

@@ -39,6 +39,7 @@ USER service
 
 # Set environment variables
 ENV RUST_LOG=info
+ENV LOG_LEVEL=info
 
 # Set default values for arguments
 ENV SOCKET_PATH="/tmp/network-utxos.sock" \
@@ -69,4 +70,5 @@ CMD indexer \
     --polling-rate "$POLLING_RATE" \
     --max-blocks-per-batch "$MAX_BLOCKS_PER_BATCH" \
     --api-host "$API_HOST" \
-    --api-port "$API_PORT"
+    --api-port "$API_PORT" \
+    --log-level "$LOG_LEVEL"
