@@ -418,7 +418,7 @@ impl BitcoinIndexer {
                             {
                                 if watch_set.contains(&address) {
                                     let spent_utxo = UtxoUpdate {
-                                        id: format!("{}:{}", prev_txid, vout),
+                                        id: format!("{prev_txid}:{vout}"),
                                         address: address.to_string(),
                                         public_key: extract_public_key(&input.witness),
                                         txid: prev_txid.to_string(),
@@ -452,7 +452,7 @@ impl BitcoinIndexer {
                                 if let Ok(address) = Address::from_script(&script, self.network) {
                                     if watch_set.contains(&address) {
                                         let spent_utxo = UtxoUpdate {
-                                            id: format!("{}:{}", prev_txid, vout),
+                                            id: format!("{prev_txid}:{vout}"),
                                             address: address.to_string(),
                                             public_key: extract_public_key(&input.witness),
                                             txid: prev_txid.to_string(),
