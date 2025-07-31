@@ -152,7 +152,7 @@ fn validate_enclave_url(url_str: &str) -> Result<(), String> {
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
-    env_logger::Builder::from_default_env()
+    env_logger::Builder::new()
         .filter_level(args.log_level.parse().unwrap_or(log::LevelFilter::Info))
         .init();
 

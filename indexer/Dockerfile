@@ -38,7 +38,6 @@ RUN useradd -m -u 1001 service && \
 USER service
 
 # Set environment variables
-ENV RUST_LOG=info
 ENV LOG_LEVEL=info
 
 # Set default values for arguments

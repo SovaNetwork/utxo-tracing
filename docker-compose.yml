@@ -96,7 +96,6 @@ services:
       context: .
       dockerfile: ./indexer/Dockerfile
     environment:
-      - RUST_LOG=${LOG_LEVEL}
       - LOG_LEVEL=${LOG_LEVEL}
       - NETWORK=${BITCOIN_NETWORK}
       - RPC_HOST=${BITCOIN_RPC_URL:-http://bitcoin-regtest:18443}
