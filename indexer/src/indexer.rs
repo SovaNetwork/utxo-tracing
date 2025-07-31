@@ -249,7 +249,6 @@ pub struct BitcoinIndexer {
     max_blocks_per_batch: i32,
     pub watched_addresses: Arc<RwLock<HashSet<Address>>>,
     tx_cache: Mutex<LruCache<Txid, Transaction>>,
-    utxo_cache: Mutex<LruCache<(Txid, u32), Option<UtxoUpdate>>>,
 }
 
 impl BitcoinIndexer {
@@ -312,7 +311,6 @@ impl BitcoinIndexer {
             max_blocks_per_batch: config.max_blocks_per_batch,
             watched_addresses: Arc::new(RwLock::new(HashSet::new())),
             tx_cache: Mutex::new(LruCache::new(NonZeroUsize::new(10_000).unwrap())),
-            utxo_cache: Mutex::new(LruCache::new(NonZeroUsize::new(50_000).unwrap())),
         })
     }
 
@@ -328,66 +326,6 @@ impl BitcoinIndexer {
         let tx = self.rpc_client.get_raw_transaction(txid, None).await?;
         self.tx_cache.lock().await.put(*txid, tx.clone());
         Ok(tx)
-    }
-
-    async fn get_utxo_cached(&self, txid: &Txid, vout: u32) -> IndexerResult<Option<UtxoUpdate>> {
-        let key = (*txid, vout);
-        if let Some(cached) = self.utxo_cache.lock().await.get(&key).cloned() {
-            return Ok(cached);
-        }
-
-        if let Ok(prev_tx) = self.get_transaction_cached(txid).await {
-            if let Some(prev_output) = prev_tx.output.get(vout as usize) {
-                if let Ok(address) = Address::from_script(&prev_output.script_pubkey, self.network)
-                {
-                    let utxo = UtxoUpdate {
-                        id: format!("{txid}:{vout}"),
-                        address: address.to_string(),
-                        public_key: None,
-                        txid: txid.to_string(),
-                        vout: vout as i32,
-                        amount: prev_output.value.to_sat() as i64,
-                        script_pub_key: hex::encode(prev_output.script_pubkey.as_bytes()),
-                        script_type: determine_script_type(prev_output.script_pubkey.clone()),
-                        created_at: Utc::now(),
-                        block_height: 0,
-                        spent_txid: None,
-                        spent_at: None,
-                        spent_block: None,
-                    };
-                    self.utxo_cache.lock().await.put(key, Some(utxo.clone()));
-                    return Ok(Some(utxo));
-                }
-            }
-        }
-
-        if let Ok(Some(txout)) = self.rpc_client.get_tx_out(txid, vout, None).await {
-            if let Ok(script_bytes) = hex::decode(txout.script_pub_key.hex) {
-                let script = ScriptBuf::from_bytes(script_bytes);
-                if let Ok(address) = Address::from_script(&script, self.network) {
-                    let utxo = UtxoUpdate {
-                        id: format!("{txid}:{vout}"),
-                        address: address.to_string(),
-                        public_key: None,
-                        txid: txid.to_string(),
-                        vout: vout as i32,
-                        amount: txout.value.to_sat() as i64,
-                        script_pub_key: hex::encode(script.as_bytes()),
-                        script_type: determine_script_type(script.clone()),
-                        created_at: Utc::now(),
-                        block_height: 0,
-                        spent_txid: None,
-                        spent_at: None,
-                        spent_block: None,
-                    };
-                    self.utxo_cache.lock().await.put(key, Some(utxo.clone()));
-                    return Ok(Some(utxo));
-                }
-            }
-        }
-
-        self.utxo_cache.lock().await.put(key, None);
-        Ok(None)
     }
 
     /// Gets block data for a given block hash and process transactions
@@ -411,7 +349,6 @@ impl BitcoinIndexer {
     }
 
     /// Processes all transactions in a block
-
     async fn process_transactions(
         &self,
         block: &Block,
@@ -550,6 +487,7 @@ impl BitcoinIndexer {
 
         Ok(utxo_updates)
     }
+
     /// Sends a block update to the socket transport
     async fn send_block_update(&self, update: &BlockUpdate) -> IndexerResult<()> {
         self.socket_transport.send_update(update).await?;
