@@ -98,7 +98,7 @@ docker-compose up -d
 
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
-| RUST_LOG | Log level | info |
+| LOG_LEVEL | Log level | info |
 | RPC_HOST | Bitcoin RPC host url | http://bitcoin-regtest:18443 |
 | RPC_USER | Bitcoin RPC username | user |
 | RPC_PASSWORD | Bitcoin RPC password | password |
@@ -119,7 +119,6 @@ docker-compose up -d
 
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
-| RUST_LOG | Log level | info |
 | HOST | Host to bind HTTP server | 0.0.0.0 |
 | PORT | HTTP server port | 5557 |
 | LOG_LEVEL | Log level | info |

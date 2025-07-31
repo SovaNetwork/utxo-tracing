@@ -40,8 +40,6 @@ RUN useradd -m -u 1001 service && \
     chown -R service:service /data
 
 # Set environment variables
-ENV RUST_LOG=info
-
 # Set default values for arguments
 ENV HOST=0.0.0.0 \
     PORT=5557 \

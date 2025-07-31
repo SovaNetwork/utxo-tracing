@@ -52,6 +52,9 @@ pub struct Args {
     #[arg(long, default_value = "0")]
     pub start_height: i32,
 
+    #[arg(long, default_value = "info", help = "Log level")]
+    pub log_level: String,
+
     #[arg(
         long,
         default_value = "0",
@@ -147,11 +150,11 @@ fn validate_enclave_url(url_str: &str) -> Result<(), String> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    env_logger::Builder::from_default_env()
-        .filter_level(log::LevelFilter::Debug)
-        .init();
-
     let args = Args::parse();
+
+    env_logger::Builder::new()
+        .filter_level(args.log_level.parse().unwrap_or(log::LevelFilter::Info))
+        .init();
 
     let utxo_url =
         std::env::var("UTXO_URL").unwrap_or_else(|_| "http://network-utxos:5557".to_string());
