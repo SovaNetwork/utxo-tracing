@@ -848,12 +848,17 @@ pub async fn run_server(host: &str, port: u16, state: ApiState) {
         .and(with_state(state))
         .and_then(sign_transaction_handler);
 
+    let health_route = warp::get()
+        .and(warp::path("health"))
+        .map(|| warp::reply::with_status("OK", StatusCode::OK));
+
     let routes = post_route
         .or(get_route)
         .or(derive_address_route)
         .or(select_utxos_route)
         .or(prepare_tx_route)
-        .or(sign_tx_route);
+        .or(sign_tx_route)
+        .or(health_route);
 
     let addr: std::net::IpAddr = host.parse().unwrap_or_else(|_| "0.0.0.0".parse().unwrap());
     warp::serve(routes).run((addr, port)).await;

@@ -20,7 +20,8 @@ fn parse_bitcoin_address(address: &str, expected_network: Network) -> Result<Add
 }
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
-    cfg.route("/latest-block", web::get().to(get_latest_block))
+    cfg.route("/health", web::get().to(health))
+        .route("/latest-block", web::get().to(get_latest_block))
         .route("/block/{height}/txids", web::get().to(get_block_txids))
         .route(
             "/utxos/block/{height}/address/{address}",
@@ -50,6 +51,10 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
             "/signed-tx/destination/{destination}",
             web::get().to(get_signed_txs_by_destination),
         );
+}
+
+async fn health() -> HttpResponse {
+    HttpResponse::Ok().finish()
 }
 
 #[instrument(skip(state))]
