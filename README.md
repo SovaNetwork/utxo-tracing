@@ -1,6 +1,8 @@
-# &#8383;itcoin UTXO Tracing :orange_book:
+# utxo-tracing
 
-A high-performance Bitcoin UTXO indexer and database for tracking and querying UTXO data with blockchain reorganization handling.
+A high-performance Bitcoin indexer used to scan new Bitcoin blocks for UTXOs from a set of watched addresses.
+
+This tool includes an indexer and database for tracking and querying UTXO data.
 
 This service is used by [Sova validators](https://github.com/SovaNetwork/sova-reth) to obtain spendable UTXOs for network signing and other read operations.
 
