@@ -145,8 +145,8 @@ impl ExternalRpcClient {
                 .client
                 .post(&self.rpc_url)
                 .json(&serde_json::json!({
-                    "jsonrpc": "1.0",
-                    "id": "1",
+                    "jsonrpc": "2.0",
+                    "id": 1,
                     "method": method,
                     "params": params,
                 }))
@@ -281,7 +281,7 @@ impl ExternalRpcClient {
             for (i, txid) in chunk.iter().enumerate() {
                 id_map.insert(i as u64, *txid);
                 batch.push(serde_json::json!({
-                    "jsonrpc": "1.0",
+                    "jsonrpc": "2.0",
                     "id": i,
                     "method": "getrawtransaction",
                     "params": [txid.to_string(), false],
@@ -328,7 +328,7 @@ impl ExternalRpcClient {
             for (i, (txid, vout)) in chunk.iter().enumerate() {
                 id_map.insert(i as u64, (*txid, *vout));
                 batch.push(serde_json::json!({
-                    "jsonrpc": "1.0",
+                    "jsonrpc": "2.0",
                     "id": i,
                     "method": "gettxout",
                     "params": [txid.to_string(), *vout],

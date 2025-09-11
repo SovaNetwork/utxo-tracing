@@ -166,3 +166,35 @@ volumes:
 #   * Mainnet: 6 confirmations
 #   * Testnet: 3 confirmations
 #   * Regtest: 1 confirmation
+#
+# ==============================================================================
+# TROUBLESHOOTING
+# ==============================================================================
+#
+# RPC AUTHENTICATION ISSUES WITH EXTERNAL APIs
+# ============================================
+# When using external Bitcoin RPC APIs (Alchemy, BlockCypher, etc.) with API 
+# keys in the URL, you may get "Must be authenticated!" errors.
+#
+# PROBLEM: The indexer adds HTTP Basic Auth headers when RPC_USER/RPC_PASSWORD
+# are set, conflicting with API-key-based authentication.
+#
+# SOLUTION: Use proper empty string syntax:
+#
+# CORRECT - YAML mapping syntax for empty strings:
+#   environment:
+#     RPC_USER: ""
+#     RPC_PASSWORD: ""
+#
+# CORRECT - omit values entirely:
+#   environment:
+#     - RPC_USER=
+#     - RPC_PASSWORD=
+#
+# INCORRECT - list syntax with quotes creates literal quote characters:
+#   environment:
+#     - RPC_USER=""     # This becomes '""' (two quotes), not empty string
+#     - RPC_PASSWORD=""
+#
+# The indexer only skips authentication when credentials are truly empty strings,
+# not when they contain quote characters.

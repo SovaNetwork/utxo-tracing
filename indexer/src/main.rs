@@ -154,18 +154,46 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let utxo_url =
         std::env::var("UTXO_URL").unwrap_or_else(|_| "http://network-utxos:5557".to_string());
 
+    // Read configuration from environment variables, fallback to CLI args
+    let rpc_user = std::env::var("RPC_USER").unwrap_or_else(|_| args.rpc_user.clone());
+    let rpc_password = std::env::var("RPC_PASSWORD").unwrap_or_else(|_| args.rpc_password.clone());
+    let rpc_host = std::env::var("RPC_HOST").unwrap_or_else(|_| args.rpc_host.clone());
+    let connection_type =
+        std::env::var("RPC_CONNECTION_TYPE").unwrap_or_else(|_| args.rpc_connection_type.clone());
+    let network = std::env::var("NETWORK").unwrap_or_else(|_| args.network.clone());
+    let socket_path = std::env::var("SOCKET_PATH").unwrap_or_else(|_| args.socket_path.clone());
+    let start_height = std::env::var("START_HEIGHT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(args.start_height);
+    let max_blocks_per_batch = std::env::var("MAX_BLOCKS_PER_BATCH")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(args.max_blocks_per_batch);
+    let batch_size = std::env::var("BATCH_SIZE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(args.batch_size);
+
     let config = IndexerConfig {
-        network: args.parse_network(),
-        rpc_user: args.rpc_user.clone(),
-        rpc_password: args.rpc_password.clone(),
-        rpc_host: args.rpc_host.clone(),
-        connection_type: args
-            .parse_connection_type()
-            .expect("Invalid connection type"),
-        socket_path: args.socket_path.clone(),
-        start_height: args.start_height,
-        max_blocks_per_batch: args.max_blocks_per_batch,
-        batch_size: args.batch_size,
+        network: match network.to_lowercase().as_str() {
+            "mainnet" => Network::Bitcoin,
+            "regtest" => Network::Regtest,
+            "signet" => Network::Signet,
+            "testnet" => Network::Testnet,
+            _ => panic!("Unsupported network: {network}"),
+        },
+        rpc_user,
+        rpc_password,
+        rpc_host,
+        connection_type: match connection_type.to_lowercase().as_str() {
+            "bitcoincore" | "external" => connection_type.to_lowercase(),
+            _ => panic!("Unsupported connection type: {connection_type}"),
+        },
+        socket_path,
+        start_height,
+        max_blocks_per_batch,
+        batch_size,
     };
     let mut indexer = BitcoinIndexer::new(config).await?;
 
